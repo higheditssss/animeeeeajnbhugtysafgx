@@ -13,7 +13,7 @@
 :root{
   --black:#000;--dark:#0a0a0a;--mid:#111;
   --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
-  --white:#fff;--red:#888;--gold:#aaa;--green:#5a9e9a;--blue:#4a7acc;
+  --white:#fff;--red:#888;--gold:#aaa;--green:#4ecdc4;--blue:#4a9eff;
   --grey:#444;--grey2:#666;--text:#999;
   --fd:'Barlow Condensed',sans-serif;--fs:'Playfair Display',serif;--fb:'Barlow',sans-serif;
 }
@@ -663,6 +663,280 @@ function MusicPanel({showToast}){
 }
 
 /* ═══════════════════════════════════════════════
+   XML IMPORT MODAL
+═══════════════════════════════════════════════ */
+function XmlImportModal({onImport,onClose,showToast}){
+  const[state,setState]=useState('idle'); // idle | parsing | preview | done | error
+  const[errMsg,setErrMsg]=useState('');
+  const[parsed,setParsed]=useState([]);
+  const[sel,setSel]=useState(new Set());
+  const[fileName,setFileName]=useState('');
+  const fileRef=useRef(null);
+  const mob=useIsMobile();
+
+  useEffect(()=>{
+    const h=e=>{if(e.key==='Escape')onClose();};
+    window.addEventListener('keydown',h);return()=>window.removeEventListener('keydown',h);
+  },[onClose]);
+
+  /* Parse XML → array of anime objects */
+  function parseXml(xmlText){
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(xmlText,'application/xml');
+    const parseErr=doc.querySelector('parsererror');
+    if(parseErr) throw new Error('XML invalid sau corupt');
+
+    const items=[];
+
+    /* Format 1: MAL export XML — <anime> nodes inside <myanimelist> */
+    const malNodes=[...doc.querySelectorAll('myanimelist anime,anime')];
+    if(malNodes.length>0){
+      for(const node of malNodes){
+        const g=t=>node.querySelector(t)?.textContent?.trim()||'';
+        const malId=parseInt(g('series_animedb_id'));
+        if(!malId) continue;
+        const statusMap={'Watching':'watching','Completed':'completed','Plan to Watch':'plan_to_watch','Dropped':'dropped','On-Hold':'plan_to_watch'};
+        items.push({
+          mal_id:malId,
+          title:g('series_title')||g('series_title'),
+          title_english:g('series_title_english')||null,
+          image:'',image_sm:'',
+          score:parseFloat(g('series_mean_score'))||null,
+          episodes:parseInt(g('series_episodes'))||null,
+          year:null,genres:[],synopsis:'',type:g('series_type')||'',
+          status:statusMap[g('my_status')]||'plan_to_watch',
+          userScore:parseInt(g('my_score'))||null,
+          epsWatched:parseInt(g('my_watched_episodes'))||0,
+          notes:g('my_comments')||'',
+          addedAt:Date.now(),
+        });
+      }
+    }
+
+    /* Format 2: custom HighEdits export — <library><entry> nodes */
+    if(items.length===0){
+      const entries=[...doc.querySelectorAll('library entry, entries entry, collection entry, entry')];
+      for(const node of entries){
+        const g=t=>node.querySelector(t)?.textContent?.trim()||'';
+        const malId=parseInt(g('mal_id')||g('malId')||g('id'));
+        if(!malId) continue;
+        items.push({
+          mal_id:malId,
+          title:g('title'),
+          title_english:g('title_english')||g('titleEnglish')||null,
+          image:g('image')||'',image_sm:g('image_sm')||'',
+          score:parseFloat(g('score'))||null,
+          episodes:parseInt(g('episodes'))||null,
+          year:parseInt(g('year'))||null,
+          genres:g('genres')?g('genres').split(',').map(s=>s.trim()).filter(Boolean):[],
+          synopsis:g('synopsis')||'',
+          type:g('type')||'',
+          status:g('status')||'plan_to_watch',
+          userScore:parseInt(g('userScore')||g('user_score'))||null,
+          epsWatched:parseInt(g('epsWatched')||g('eps_watched'))||0,
+          notes:g('notes')||'',
+          addedAt:Date.now(),
+        });
+      }
+    }
+
+    if(items.length===0) throw new Error('Niciun anime găsit în XML. Verifică formatul fișierului.');
+    return items;
+  }
+
+  const handleFile=e=>{
+    const file=e.target.files?.[0];
+    if(!file) return;
+    setFileName(file.name);
+    setState('parsing');
+    setErrMsg('');
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try{
+        const items=parseXml(ev.target.result);
+        setParsed(items);
+        setSel(new Set(items.map(a=>a.mal_id)));
+        setState('preview');
+      }catch(err){
+        setErrMsg(err.message);
+        setState('error');
+      }
+    };
+    reader.onerror=()=>{setErrMsg('Eroare la citirea fișierului.');setState('error');};
+    reader.readAsText(file);
+    // reset input so same file can be re-selected
+    e.target.value='';
+  };
+
+  const toggleAll=()=>{
+    if(sel.size===parsed.length) setSel(new Set());
+    else setSel(new Set(parsed.map(a=>a.mal_id)));
+  };
+  const toggleOne=id=>setSel(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});
+
+  const doImport=()=>{
+    const toImport=parsed.filter(a=>sel.has(a.mal_id));
+    onImport(toImport);
+    showToast(`✓ ${toImport.length} anime importate din XML!`,'ok');
+    setState('done');
+    setTimeout(onClose,1400);
+  };
+
+  const STATUS_COLORS={watching:'#7c8fff',completed:'#4ecdc4',plan_to_watch:'#ff6b9d',dropped:'#ff4444'};
+
+  return(
+    <div style={{
+      position:'fixed',inset:0,zIndex:900,
+      background:'rgba(0,0,0,0.88)',backdropFilter:'blur(7px)',
+      display:'flex',alignItems:mob?'flex-end':'center',justifyContent:'center',
+      padding:mob?0:24,animation:'fadeIn .2s ease',
+    }} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{
+        background:'var(--dark)',border:mob?'none':'1px solid var(--border)',
+        borderTop:'2px solid var(--green)',
+        width:'100%',maxWidth:mob?'100%':560,
+        maxHeight:mob?'92vh':'88vh',overflowY:'auto',position:'relative',
+        borderRadius:mob?'18px 18px 0 0':0,
+        animation:mob?'slideUp .3s ease':'scaleIn .25s ease',
+        paddingBottom:'env(safe-area-inset-bottom,0px)',
+      }}>
+        {/* Header */}
+        <div style={{padding:mob?'20px 20px 0':'28px 28px 0',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
+          <div>
+            <h2 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:26,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{color:'var(--green)'}}>📄</span> Import XML
+            </h2>
+            <p style={{fontSize:12,color:'var(--grey2)',marginTop:3}}>Selectează un fișier .xml — export MAL sau format HighEdits</p>
+          </div>
+          <button onClick={onClose} style={{background:'rgba(255,255,255,0.06)',border:'1px solid var(--border)',color:'white',width:30,height:30,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,borderRadius:6}}>✕</button>
+        </div>
+
+        <div style={{padding:mob?'20px':'28px'}}>
+
+          {/* IDLE / ERROR: file picker drop zone */}
+          {(state==='idle'||state==='error')&&(
+            <div>
+              <input ref={fileRef} type="file" accept=".xml,application/xml,text/xml" style={{display:'none'}} onChange={handleFile}/>
+              <div
+                onClick={()=>fileRef.current?.click()}
+                style={{
+                  border:'2px dashed rgba(78,205,196,0.3)',
+                  borderRadius:8,
+                  padding:mob?'32px 20px':'44px 32px',
+                  textAlign:'center',
+                  cursor:'pointer',
+                  background:'rgba(78,205,196,0.04)',
+                  transition:'all .2s',
+                }}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor='rgba(78,205,196,0.6)';e.currentTarget.style.background='rgba(78,205,196,0.08)';}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor='rgba(78,205,196,0.3)';e.currentTarget.style.background='rgba(78,205,196,0.04)';}}
+              >
+                <div style={{fontSize:40,marginBottom:12,opacity:0.7}}>📂</div>
+                <div style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:mob?14:16,letterSpacing:2,textTransform:'uppercase',color:'var(--green)',marginBottom:6}}>
+                  Click pentru a selecta fișierul
+                </div>
+                <div style={{fontSize:12,color:'var(--grey2)'}}>Acceptă: .xml (export MAL, HighEdits)</div>
+              </div>
+              {state==='error'&&(
+                <div style={{marginTop:14,padding:'12px 14px',background:'rgba(255,68,68,0.08)',border:'1px solid rgba(255,68,68,0.2)',borderLeft:'3px solid var(--red)'}}>
+                  <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--red)',marginBottom:3}}>✗ Eroare</div>
+                  <div style={{fontSize:13,color:'rgba(255,100,100,0.8)'}}>{errMsg}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* PARSING: spinner */}
+          {state==='parsing'&&(
+            <div style={{textAlign:'center',padding:'48px 0',display:'flex',flexDirection:'column',alignItems:'center',gap:14}}>
+              <span style={{display:'inline-block',width:32,height:32,border:'2px solid rgba(255,255,255,0.07)',borderTopColor:'var(--green)',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>
+              <div style={{fontFamily:'var(--fd)',fontSize:11,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)'}}>Se procesează {fileName}...</div>
+            </div>
+          )}
+
+          {/* PREVIEW: list of parsed anime */}
+          {state==='preview'&&(
+            <div>
+              {/* Summary bar */}
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,padding:'10px 14px',background:'rgba(78,205,196,0.08)',border:'1px solid rgba(78,205,196,0.18)',borderLeft:'3px solid var(--green)'}}>
+                <div>
+                  <span style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:22,color:'var(--green)'}}>{parsed.length}</span>
+                  <span style={{fontFamily:'var(--fd)',fontSize:11,letterSpacing:2,textTransform:'uppercase',color:'var(--grey2)',marginLeft:8}}>anime găsite în {fileName}</span>
+                </div>
+                <button onClick={toggleAll} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:2,textTransform:'uppercase',background:'none',border:'1px solid var(--border)',color:'var(--grey2)',padding:'5px 10px',cursor:'pointer',transition:'all .15s'}}
+                  onMouseEnter={e=>e.currentTarget.style.color='white'} onMouseLeave={e=>e.currentTarget.style.color='var(--grey2)'}>
+                  {sel.size===parsed.length?'Deselectează tot':'Selectează tot'}
+                </button>
+              </div>
+
+              {/* List */}
+              <div style={{maxHeight:mob?'38vh':'40vh',overflowY:'auto',display:'flex',flexDirection:'column',gap:2,marginBottom:16}}>
+                {parsed.map(a=>{
+                  const checked=sel.has(a.mal_id);
+                  const sc=STATUS_COLORS[a.status]||'#888';
+                  return(
+                    <div key={a.mal_id} onClick={()=>toggleOne(a.mal_id)} style={{
+                      display:'flex',alignItems:'center',gap:10,padding:'9px 12px',
+                      background:checked?'rgba(78,205,196,0.06)':'transparent',
+                      border:`1px solid ${checked?'rgba(78,205,196,0.15)':'var(--border)'}`,
+                      cursor:'pointer',transition:'all .15s',borderRadius:4,
+                    }}
+                    onMouseEnter={e=>e.currentTarget.style.background=checked?'rgba(78,205,196,0.1)':'rgba(255,255,255,0.03)'}
+                    onMouseLeave={e=>e.currentTarget.style.background=checked?'rgba(78,205,196,0.06)':'transparent'}>
+                      {/* Checkbox */}
+                      <div style={{
+                        width:16,height:16,borderRadius:3,flexShrink:0,
+                        border:`2px solid ${checked?'var(--green)':'rgba(255,255,255,0.2)'}`,
+                        background:checked?'var(--green)':'transparent',
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        transition:'all .15s',
+                      }}>
+                        {checked&&<span style={{fontSize:9,color:'#000',fontWeight:900,lineHeight:1}}>✓</span>}
+                      </div>
+                      {/* Info */}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:13,color:'rgba(255,255,255,0.88)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.title}</div>
+                        <div style={{display:'flex',gap:8,marginTop:2,alignItems:'center'}}>
+                          <span style={{fontFamily:'var(--fd)',fontSize:9,letterSpacing:1,textTransform:'uppercase',color:sc,border:`1px solid ${sc}33`,padding:'1px 5px'}}>{a.status?.replace('_',' ')}</span>
+                          {a.epsWatched>0&&<span style={{fontFamily:'var(--fd)',fontSize:10,color:'var(--grey2)'}}>ep {a.epsWatched}{a.episodes?'/'+a.episodes:''}</span>}
+                          {a.userScore>0&&<span style={{fontFamily:'var(--fd)',fontSize:10,color:'var(--gold)'}}>★ {a.userScore}</span>}
+                        </div>
+                      </div>
+                      <span style={{fontFamily:'var(--fd)',fontSize:10,color:'rgba(255,255,255,0.2)',flexShrink:0}}>#{a.mal_id}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Import button */}
+              <button onClick={doImport} disabled={sel.size===0} style={{
+                width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:3,
+                textTransform:'uppercase',
+                background:sel.size===0?'rgba(78,205,196,0.12)':'var(--green)',
+                color:sel.size===0?'rgba(78,205,196,0.4)':'#000',
+                border:'none',padding:14,cursor:sel.size===0?'not-allowed':'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8,
+                transition:'opacity .2s',
+              }}>
+                📥 IMPORTĂ {sel.size} ANIME SELECTATE
+              </button>
+            </div>
+          )}
+
+          {/* DONE */}
+          {state==='done'&&(
+            <div style={{textAlign:'center',padding:'48px 0'}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:22,letterSpacing:1,textTransform:'uppercase',color:'var(--green)'}}>Import reușit!</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
    ADMIN PANEL
 ═══════════════════════════════════════════════ */
 function AdminPanel({onLogout}){
@@ -680,6 +954,7 @@ function AdminPanel({onLogout}){
   const[editItem,setEditItem]=useState(null);
   const[delId,setDelId]=useState(null);
   const[showImport,setShowImport]=useState(false);
+  const[showXmlImport,setShowXmlImport]=useState(false);
   const[showCPass,setShowCPass]=useState(false);
   const[settingsOpen,setSettingsOpen]=useState(false);
   const[showMusicPanel,setShowMusicPanel]=useState(false);
@@ -725,9 +1000,16 @@ function AdminPanel({onLogout}){
       <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:24,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',marginBottom:20,paddingBottom:14,borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10}}><span style={{color:'var(--red)'}}>＋</span>Adaugă Anime</div>
 
       {/* MAL Import CTA */}
-      <button onClick={()=>setShowImport(true)} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:2,textTransform:'uppercase',background:'rgba(74,158,255,0.1)',color:'var(--blue)',border:'1px solid rgba(74,158,255,0.28)',borderLeft:'3px solid var(--blue)',padding:'13px 16px',cursor:'pointer',display:'flex',alignItems:'center',gap:10,marginBottom:18,transition:'background .2s',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(74,158,255,0.17)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(74,158,255,0.1)'}>
+      <button onClick={()=>setShowImport(true)} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:2,textTransform:'uppercase',background:'rgba(74,158,255,0.1)',color:'var(--blue)',border:'1px solid rgba(74,158,255,0.28)',borderLeft:'3px solid var(--blue)',padding:'13px 16px',cursor:'pointer',display:'flex',alignItems:'center',gap:10,marginBottom:10,transition:'background .2s',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(74,158,255,0.17)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(74,158,255,0.1)'}>
         <span style={{fontSize:20,flexShrink:0}}>↓</span>
         <div><div>Import din MyAnimeList</div><div style={{fontSize:10,fontWeight:600,color:'rgba(74,158,255,0.6)',letterSpacing:.5,marginTop:2,textTransform:'none'}}>Importă lista unui cont MAL prin username</div></div>
+        <span style={{marginLeft:'auto',opacity:.4}}>→</span>
+      </button>
+
+      {/* XML Import CTA */}
+      <button onClick={()=>setShowXmlImport(true)} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:2,textTransform:'uppercase',background:'rgba(78,205,196,0.08)',color:'var(--green)',border:'1px solid rgba(78,205,196,0.22)',borderLeft:'3px solid var(--green)',padding:'13px 16px',cursor:'pointer',display:'flex',alignItems:'center',gap:10,marginBottom:18,transition:'background .2s',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(78,205,196,0.15)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(78,205,196,0.08)'}>
+        <span style={{fontSize:20,flexShrink:0}}>📄</span>
+        <div><div>Import din fișier XML</div><div style={{fontSize:10,fontWeight:600,color:'rgba(78,205,196,0.55)',letterSpacing:.5,marginTop:2,textTransform:'none'}}>Selectează un fișier .xml de pe dispozitiv</div></div>
         <span style={{marginLeft:'auto',opacity:.4}}>→</span>
       </button>
 
@@ -831,6 +1113,7 @@ function AdminPanel({onLogout}){
             <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:3,textTransform:'uppercase',color:'var(--grey)',padding:'8px 16px 4px'}}>Setări Admin</div>
             <button onClick={()=>{setShowCPass(true);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--gold)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>🔑 Schimbă Parola</button>
             <button onClick={()=>{setShowImport(true);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--blue)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>↓ Import MAL</button>
+            <button onClick={()=>{setShowXmlImport(true);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--green)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>📄 Import XML</button>
             <button onClick={()=>{setShowMusicPanel(p=>!p);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--gold)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>♪ Playlist Muzică</button>
             <div style={{height:1,background:'var(--border)',margin:'4px 0'}}/>
             <button onClick={deleteAll} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'rgba(255,68,68,0.6)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>🗑️ Șterge tot</button>
@@ -871,6 +1154,7 @@ function AdminPanel({onLogout}){
       {editItem&&<EditModal anime={editItem} onSave={ch=>saveEdit(editItem.mal_id,ch)} onClose={()=>setEditItem(null)}/>}
       {delId!==null&&<DelConfirm onConfirm={()=>removeAnime(delId)} onClose={()=>setDelId(null)}/>}
       {showImport&&<MalImport library={library} onImport={handleImport} onClose={()=>setShowImport(false)} showToast={showToast}/>}
+      {showXmlImport&&<XmlImportModal onImport={handleImport} onClose={()=>setShowXmlImport(false)} showToast={showToast}/>}
       {showCPass&&<ChangePassModal onClose={()=>setShowCPass(false)} showToast={showToast}/>}
       <Toast {...toast}/>
     </div>
