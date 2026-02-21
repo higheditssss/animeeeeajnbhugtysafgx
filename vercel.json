@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/admin-x7k2m9", "destination": "/admin-x7k2m9.html" }
+  ],
+  "headers": [
+    {
+      "source": "/admin-x7k2m9.html",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    }
+  ]
+}

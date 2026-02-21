@@ -11,20 +11,19 @@
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --black:#000;--dark:#0d0d0d;--mid:#161616;
-  --border:rgba(255,255,255,0.07);
-  --white:#fff;--red:#e63022;--gold:#ffd166;
-  --grey:#555;--grey2:#888;--text:#c8c8c0;
-  --fd:'Barlow Condensed',sans-serif;
-  --fs:'Playfair Display',serif;
-  --fb:'Barlow',sans-serif;
+  --black:#000;--dark:#080808;--mid:#0f0f0f;--card:#141414;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --white:#ededed;--grey:#444;--grey2:#777;--grey3:#aaa;
+  --gold:#c9a84c;--gold2:rgba(201,168,76,0.15);
+  --fd:'Barlow Condensed',sans-serif;--fs:'Playfair Display',serif;--fb:'Barlow',sans-serif;
+  --accent:#c9a84c;
 }
 html{scroll-behavior:smooth;}
-body{font-family:var(--fb);background:var(--black);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+body{font-family:var(--fb);background:var(--black);color:var(--grey3);overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
 img{display:block;max-width:100%;}
-*::-webkit-scrollbar{width:3px;height:3px;}
+*::-webkit-scrollbar{width:2px;height:2px;}
 *::-webkit-scrollbar-track{background:transparent;}
-*::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.09);}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.07);}
 input,select,button{font-family:inherit;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
@@ -60,7 +59,7 @@ function useIsMobile(){
 
 /* ─── SPINNER ─── */
 function Spin({size=20}){
-  return <span style={{display:'inline-block',width:size,height:size,border:'2px solid rgba(255,255,255,0.07)',borderTopColor:'var(--red)',borderRadius:'50%',animation:'spin 0.7s linear infinite',verticalAlign:'middle',flexShrink:0}}/>;
+  return <span style={{display:'inline-block',width:size,height:size,border:'2px solid rgba(255,255,255,0.07)',borderTopColor:'var(--gold)',borderRadius:'50%',animation:'spin 0.7s linear infinite',verticalAlign:'middle',flexShrink:0}}/>;
 }
 
 /* ─── MUSIC PLAYER ─── */
@@ -256,7 +255,7 @@ function Navbar({page,setPage,scrolled}){
       <div onClick={()=>{setPage('home');setOpen(false);}} style={{
         fontFamily:'var(--fd)',fontWeight:900,fontSize:20,letterSpacing:5,
         textTransform:'uppercase',cursor:'pointer',color:'var(--white)',userSelect:'none',flexShrink:0,
-      }}>ANI<span style={{color:'var(--red)'}}>VERSE</span></div>
+      }}>HIGH<span style={{color:'var(--grey2)'}}>EDITS</span></div>
 
       {mob?(
         <button onClick={()=>setOpen(o=>!o)} style={{
@@ -270,7 +269,7 @@ function Navbar({page,setPage,scrolled}){
               fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2.5,textTransform:'uppercase',
               color:page===id?'var(--white)':'rgba(255,255,255,0.37)',
               background:'none',border:'none',
-              borderBottom:page===id?'2px solid var(--red)':'2px solid transparent',
+              borderBottom:page===id?'1px solid rgba(255,255,255,0.35)':':'2px solid transparent',
               padding:'6px 16px',cursor:'pointer',transition:'color .2s',
             }}>{lbl}</button>
           ))}
@@ -290,7 +289,7 @@ function Navbar({page,setPage,scrolled}){
             fontFamily:'var(--fd)',fontWeight:700,fontSize:15,letterSpacing:3,textTransform:'uppercase',
             color:page===id?'var(--white)':'rgba(255,255,255,0.44)',
             background:'none',border:'none',
-            borderLeft:page===id?'3px solid var(--red)':'3px solid transparent',
+            borderLeft:page===id?'3px solid var(--gold)':'3px solid transparent',
             padding:'15px 24px',cursor:'pointer',
           }}>{lbl}</button>
         ))}
@@ -348,7 +347,7 @@ function Hero({library}){
         position:'absolute',inset:0,
         backgroundImage:`url('${cur.image}')`,
         backgroundSize:'cover',backgroundPosition:'center 20%',
-        filter:'brightness(0.27)',
+        filter:'brightness(0.14) grayscale(0.3)',
         animation:'heroKen 8s ease-out forwards',
       }}/>
       <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,#000 0%,rgba(0,0,0,0.6) 45%,rgba(0,0,0,0.05) 100%)'}}/>
@@ -362,8 +361,8 @@ function Hero({library}){
         maxWidth:mob?'100%':860,
         animation:'fadeUp .55s ease forwards',
       }}>
-        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:4,textTransform:'uppercase',color:'var(--red)',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
-          <span style={{width:24,height:2,background:'var(--red)',display:'inline-block',flexShrink:0}}/>
+        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:4,textTransform:'uppercase',color:'var(--gold)',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{width:24,height:2,background:'var(--gold)',display:'inline-block',flexShrink:0}}/>
           {cur.type||'Anime'}
           {sm&&<span style={{padding:'2px 9px',border:`1px solid ${sm.color}`,color:sm.color,fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:2,marginLeft:6}}>{sm.label}</span>}
         </div>
@@ -383,7 +382,7 @@ function Hero({library}){
           {cur.score&&<span style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:mob?13:16,color:'var(--gold)'}}>★ {cur.score}</span>}
           {cur.episodes&&<span style={{fontFamily:'var(--fd)',fontWeight:600,fontSize:12,color:'rgba(255,255,255,0.42)',letterSpacing:1}}>{cur.episodes} EP</span>}
           {cur.year&&<span style={{fontFamily:'var(--fd)',fontWeight:600,fontSize:12,color:'rgba(255,255,255,0.42)',letterSpacing:1}}>{cur.year}</span>}
-          {cur.userScore&&<span style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:11,color:'var(--red)',letterSpacing:.5}}>★ Scor meu: {cur.userScore}/10</span>}
+          {cur.userScore&&<span style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:11,color:'var(--gold)',letterSpacing:.5}}>★ Scor meu: {cur.userScore}/10</span>}
         </div>
 
         {!mob&&(
@@ -452,7 +451,7 @@ function StatsBar({library}){
   const sc=library.filter(a=>a.userScore).map(a=>a.userScore);
   const avg=sc.length?(sc.reduce((a,b)=>a+b,0)/sc.length).toFixed(1):'—';
   return(
-    <div style={{display:'grid',gridTemplateColumns:`repeat(${mob?2:4},1fr)`,background:'var(--dark)',borderTop:'1px solid var(--border)'}}>
+    <div style={{display:'grid',gridTemplateColumns:`repeat(${mob?2:4},1fr)`,background:'var(--mid)',borderTop:'1px solid var(--border)'}}>
       {[['Total',library.length,'var(--white)'],['Urmăresc',w,'#7c8fff'],['Terminate',c,'#4ecdc4'],['Scor Mediu',avg,'var(--gold)']].map(([l,v,col],i)=>(
         <div key={l} style={{
           padding:mob?'16px 0':'22px 0',textAlign:'center',
@@ -471,13 +470,13 @@ function StatsBar({library}){
 function FilterBar({options,active,onChange}){
   const mob=useIsMobile();
   return(
-    <div style={{display:'flex',overflowX:'auto',background:'var(--dark)',borderBottom:'1px solid var(--border)',padding:mob?'0 16px':'0 clamp(16px,4vw,64px)',scrollbarWidth:'none'}}>
+    <div style={{display:'flex',overflowX:'auto',background:'var(--mid)',borderBottom:'1px solid var(--border)',padding:mob?'0 16px':'0 clamp(16px,4vw,64px)',scrollbarWidth:'none'}}>
       {options.map(([k,lbl])=>(
         <button key={k} onClick={()=>onChange(k)} style={{
           fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?12:11,
           letterSpacing:2,textTransform:'uppercase',
           padding:mob?'14px 14px':'15px 18px',background:'none',border:'none',
-          borderBottom:active===k?'2px solid var(--red)':'2px solid transparent',
+          borderBottom:page===id?'1px solid rgba(255,255,255,0.35)':':'2px solid transparent',
           color:active===k?'white':'rgba(255,255,255,0.37)',
           cursor:'pointer',transition:'color .2s',flexShrink:0,whiteSpace:'nowrap',
         }}>{lbl}</button>
@@ -494,7 +493,7 @@ function Card({anime,onClick}){
   const prog=anime.episodes&&anime.epsWatched?Math.round(anime.epsWatched/anime.episodes*100):0;
   return(
     <div
-      style={{position:'relative',cursor:'pointer',overflow:'hidden',background:'var(--mid)',aspectRatio:'2/3'}}
+      style={{position:'relative',cursor:'pointer',overflow:'hidden',background:'var(--card)',aspectRatio:'2/3'}}
       onMouseEnter={()=>!mob&&setHov(true)}
       onMouseLeave={()=>setHov(false)}
       onClick={()=>onClick(anime)}
@@ -534,7 +533,7 @@ function Card({anime,onClick}){
 
       {prog>0&&(
         <div style={{position:'absolute',bottom:0,left:0,width:'100%',height:3,background:'rgba(255,255,255,0.07)'}}>
-          <div style={{width:`${prog}%`,height:'100%',background:'var(--red)'}}/>
+          <div style={{width:`${prog}%`,height:'100%',background:'var(--gold)'}}/>
         </div>
       )}
     </div>
@@ -601,7 +600,7 @@ function Modal({anime,onClose}){
 
         {/* Banner */}
         <div style={{position:'relative',height:mob?155:195,overflow:'hidden'}}>
-          <img src={anime.image} style={{width:'100%',height:'100%',objectFit:'cover',filter:'brightness(0.27)'}} alt=""/>
+          <img src={anime.image} style={{width:'100%',height:'100%',objectFit:'cover',filter:'brightness(0.14) grayscale(0.3)'}} alt=""/>
           <div style={{position:'absolute',inset:0,background:'linear-gradient(to top,var(--dark) 0%,transparent 100%)'}}/>
           <div style={{position:'absolute',inset:0,display:'flex',gap:mob?14:22,padding:mob?'14px 16px':'22px',alignItems:'flex-end'}}>
             <img src={anime.image} style={{width:mob?64:88,height:mob?92:126,objectFit:'cover',border:'2px solid rgba(255,255,255,0.13)',flexShrink:0}} alt=""/>
@@ -647,7 +646,7 @@ function Modal({anime,onClose}){
                 <span>PROGRES</span><span>{prog}%</span>
               </div>
               <div style={{height:3,background:'rgba(255,255,255,0.07)'}}>
-                <div style={{width:`${prog}%`,height:'100%',background:'var(--red)',transition:'width .6s ease'}}/>
+                <div style={{width:`${prog}%`,height:'100%',background:'var(--gold)',transition:'width .6s ease'}}/>
               </div>
             </div>
           )}
@@ -678,7 +677,7 @@ function SecHead({title,accent,sub,action}){
     <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',marginBottom:mob?18:26,paddingBottom:mob?13:17,borderBottom:'1px solid var(--border)'}}>
       <div>
         <h2 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?26:38,letterSpacing:-.5,textTransform:'uppercase',lineHeight:1,color:'var(--white)'}}>
-          {title}{accent&&<span style={{color:'var(--red)'}}> {accent}</span>}
+          {title}{accent&&<span style={{color:'var(--gold)'}}> {accent}</span>}
         </h2>
         {sub&&<div style={{fontSize:11,color:'var(--grey2)',marginTop:4}}>{sub}</div>}
       </div>
@@ -712,7 +711,7 @@ function PageList({library}){
   return(
     <div style={{paddingTop:56}}>
       <div style={{padding:mob?'30px 16px 0':'44px clamp(16px,4vw,64px) 0'}}>
-        <h1 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?44:62,letterSpacing:-2,textTransform:'uppercase',lineHeight:1,color:'var(--white)'}}>LISTA <span style={{color:'var(--red)'}}>MEA</span></h1>
+        <h1 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?44:62,letterSpacing:-2,textTransform:'uppercase',lineHeight:1,color:'var(--white)'}}>LISTA <span style={{color:'var(--grey2)'}}>MEA</span></h1>
         <p style={{fontSize:12,color:'var(--grey2)',marginTop:6}}>{library.length} titluri</p>
       </div>
       <div style={{marginTop:20}}>
@@ -756,7 +755,7 @@ function PageDiscover({library}){
   return(
     <div style={{paddingTop:56}}>
       <div style={{padding:mob?'30px 16px 0':'44px clamp(16px,4vw,64px) 0'}}>
-        <h1 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?44:62,letterSpacing:-2,textTransform:'uppercase',lineHeight:1,color:'var(--white)'}}>DESCOPERĂ <span style={{color:'var(--red)'}}>ANIME</span></h1>
+        <h1 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?44:62,letterSpacing:-2,textTransform:'uppercase',lineHeight:1,color:'var(--white)'}}>DESCOPERĂ <span style={{color:'var(--grey2)'}}>ANIME</span></h1>
         <p style={{fontSize:12,color:'var(--grey2)',marginTop:6}}>Top anime via Jikan API</p>
       </div>
       <div style={{marginTop:20}}>
