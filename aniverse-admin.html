@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>HighEdits — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --black:#000;--dark:#0d0d0d;--mid:#161616;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);
+  --white:#fff;--red:#e63022;--gold:#ffd166;--green:#4ecdc4;--blue:#4a9eff;
+  --grey:#555;--grey2:#888;--text:#c4c4bc;
+  --fd:'Barlow Condensed',sans-serif;--fs:'Playfair Display',serif;--fb:'Barlow',sans-serif;
+}
+html{scroll-behavior:smooth;}
+body{font-family:var(--fb);background:var(--black);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+img{display:block;max-width:100%;}
+*::-webkit-scrollbar{width:3px;height:3px;}
+*::-webkit-scrollbar-track{background:transparent;}
+*::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.09);}
+input,select,button,textarea{font-family:inherit;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+@keyframes scaleIn{from{opacity:0;transform:scale(0.94);}to{opacity:1;transform:scale(1);}}
+@keyframes slideUp{from{opacity:0;transform:translateY(28px);}to{opacity:1;transform:translateY(0);}}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes glitch{0%,100%{transform:skewX(0) translateX(0);}15%{transform:skewX(-1deg) translateX(-3px);}30%{transform:skewX(1deg) translateX(3px);}60%{transform:skewX(.5deg) translateX(2px);}}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+@keyframes pulse{0%,100%{opacity:.28;}50%{opacity:.85;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+/* ════════ CONFIG — no password stored here ════════ */
+const STORAGE_KEY   = 'aniverse_v3_library';
+const MUSIC_KEY     = 'highedits_music';
+const PASS_HASH_KEY = 'aniverse_admin_hash';
+const SESSION_KEY   = 'av_admin_auth';
+const JIKAN         = 'https://api.jikan.moe/v4';
+
+/* SHA-256 via native Web Crypto API */
+async function sha256(text){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+/* Auth */
+function getStoredHash(){return localStorage.getItem(PASS_HASH_KEY);}
+async function setPassword(plain){const h=await sha256(plain);localStorage.setItem(PASS_HASH_KEY,h);return h;}
+async function verifyPassword(plain){
+  const stored=getStoredHash(); if(!stored) return false;
+  return (await sha256(plain))===stored;
+}
+function checkSession(){return sessionStorage.getItem(SESSION_KEY)==='ok';}
+function setSession(){sessionStorage.setItem(SESSION_KEY,'ok');}
+function clearSession(){sessionStorage.removeItem(SESSION_KEY);}
+
+/* Library */
+function getLib(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch{return[];}}
+function saveLib(l){localStorage.setItem(STORAGE_KEY,JSON.stringify(l));}
+function getMusic(){try{return JSON.parse(localStorage.getItem(MUSIC_KEY)||'[]');}catch{return[];}}
+function saveMusic(m){localStorage.setItem(MUSIC_KEY,JSON.stringify(m));}
+
+/* Mobile */
+function useIsMobile(){
+  const[m,setM]=useState(()=>window.innerWidth<768);
+  useEffect(()=>{const h=()=>setM(window.innerWidth<768);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h);},[]);
+  return m;
+}
+
+/* Jikan */
+const apiCache={};
+async function jikan(path){
+  if(apiCache[path])return apiCache[path];
+  try{const r=await fetch(JIKAN+path);const d=await r.json();apiCache[path]=d;return d;}
+  catch{return null;}
+}
+function mapJikanAnime(a){
+  return{
+    mal_id:a.mal_id,title:a.title,title_english:a.title_english||null,
+    image:a.images?.jpg?.large_image_url||a.images?.jpg?.image_url||'',
+    image_sm:a.images?.jpg?.small_image_url||a.images?.jpg?.image_url||'',
+    score:a.score||null,episodes:a.episodes||null,
+    year:a.aired?.prop?.from?.year||null,
+    genres:(a.genres||[]).map(g=>g.name),
+    synopsis:a.synopsis||'',type:a.type||'',
+  };
+}
+
+const STATUS_META={
+  watching:    {label:'Urmăresc', color:'#7c8fff',bg:'rgba(124,143,255,0.13)'},
+  completed:   {label:'Terminat', color:'#4ecdc4',bg:'rgba(78,205,196,0.13)'},
+  plan_to_watch:{label:'Plan',    color:'#ff6b9d',bg:'rgba(255,107,157,0.13)'},
+  dropped:     {label:'Dropped',  color:'#ff4444',bg:'rgba(255,68,68,0.13)'},
+};
+const MAL_STATUS={1:'watching',2:'completed',3:'plan_to_watch',4:'dropped',6:'plan_to_watch'};
+
+/* ═══ SPINNER ═══ */
+function Spin({size=16,color='var(--red)'}){
+  return <span style={{display:'inline-block',width:size,height:size,border:'2px solid rgba(255,255,255,0.08)',borderTopColor:color,borderRadius:'50%',animation:'spin .7s linear infinite',verticalAlign:'middle',flexShrink:0}}/>;
+}
+
+/* ═══ TOAST ═══ */
+function Toast({message,type,visible}){
+  return <div style={{position:'fixed',bottom:24,right:16,zIndex:9999,maxWidth:340,pointerEvents:'none',background:'var(--mid)',border:'1px solid var(--border)',borderLeft:`3px solid ${type==='ok'?'var(--green)':type==='info'?'var(--blue)':'var(--red)'}`,padding:'12px 18px',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:type==='ok'?'var(--green)':type==='info'?'var(--blue)':'#ff7777',transform:visible?'translateX(0)':'translateX(130%)',transition:'transform .35s cubic-bezier(.34,1.56,.64,1)'}}>{message}</div>;
+}
+function useToast(){
+  const[s,set]=useState({message:'',type:'ok',visible:false});
+  const t=useRef(null);
+  const show=useCallback((msg,type='ok')=>{clearTimeout(t.current);set({message:msg,type,visible:true});t.current=setTimeout(()=>set(x=>({...x,visible:false})),3500);},[]);
+  return[s,show];
+}
+
+/* ═══ CORNER ACCENTS ═══ */
+function Corners(){
+  return <>{[{top:0,left:0,borderTop:'2px solid var(--red)',borderLeft:'2px solid var(--red)'},{top:0,right:0,borderTop:'2px solid var(--red)',borderRight:'2px solid var(--red)'},{bottom:0,left:0,borderBottom:'2px solid var(--red)',borderLeft:'2px solid var(--red)'},{bottom:0,right:0,borderBottom:'2px solid var(--red)',borderRight:'2px solid var(--red)'}].map((s,i)=><div key={i} style={{position:'absolute',width:28,height:28,...s}}/>)}</>;
+}
+
+/* ═══════════════════════════════════════════════
+   SETUP SCREEN — first time, set password
+═══════════════════════════════════════════════ */
+function SetupScreen({onSetup}){
+  const[p1,setP1]=useState('');const[p2,setP2]=useState('');
+  const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const[glitch,setGlitch]=useState(false);
+  const mob=useIsMobile();const ref=useRef(null);
+  useEffect(()=>{ref.current?.focus();const id=setInterval(()=>setGlitch(g=>!g),4000);return()=>clearInterval(id);},[]);
+  const submit=async()=>{
+    if(p1.length<6){setErr('Parola trebuie să aibă minim 6 caractere');return;}
+    if(p1!==p2){setErr('Parolele nu se potrivesc');return;}
+    setLoading(true);await setPassword(p1);setSession();onSetup();
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'var(--black)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,position:'relative',overflow:'hidden'}}>
+      <div style={{position:'absolute',inset:0,background:'repeating-linear-gradient(0deg,rgba(255,255,255,0.011) 0,rgba(255,255,255,0.011) 1px,transparent 1px,transparent 4px)',pointerEvents:'none'}}/>
+      <Corners/>
+      <div style={{position:'relative',zIndex:2,width:'100%',maxWidth:440,padding:mob?'36px 24px':'52px 44px',border:'1px solid rgba(255,255,255,0.06)',background:'rgba(255,255,255,0.015)',backdropFilter:'blur(10px)',borderRadius:mob?12:0,animation:'scaleIn .5s ease'}}>
+        <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:'var(--red)',animation:'pulse 2.2s ease infinite',borderRadius:mob?'12px 12px 0 0':0}}/>
+        <div style={{textAlign:'center',marginBottom:36}}>
+          <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?24:28,letterSpacing:7,textTransform:'uppercase',color:'var(--white)',animation:glitch?'glitch .25s ease':'none',display:'inline-block'}}>HIGH<span style={{color:'var(--grey2)'}}>EDITS</span></div>
+          <div style={{fontFamily:'var(--fd)',fontWeight:600,fontSize:10,letterSpacing:4,textTransform:'uppercase',color:'rgba(255,255,255,0.18)',marginTop:8}}>SETARE PAROLĂ ADMIN</div>
+        </div>
+        <div style={{background:'rgba(74,158,255,0.07)',border:'1px solid rgba(74,158,255,0.2)',borderLeft:'3px solid var(--blue)',padding:'12px 16px',marginBottom:24}}>
+          <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:1,textTransform:'uppercase',color:'var(--blue)',marginBottom:4}}>Prima rulare — fără parolă în cod!</div>
+          <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.65}}>Parola ta va fi salvată ca <strong style={{color:'rgba(255,255,255,0.6)'}}>hash SHA-256</strong> în browser. Nimeni altcineva nu o poate citi, nici din codul sursă.</div>
+        </div>
+        {[['Parolă nouă',p1,setP1,ref,'Minim 6 caractere...'],['Confirmă parola',p2,setP2,null,'Repetă parola...']].map(([l,v,s,r,ph])=>(
+          <div key={l} style={{marginBottom:16}}>
+            <label style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:7,display:'block'}}>{l}</label>
+            <input ref={r} type="password" value={v} onChange={e=>{s(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder={ph} style={{width:'100%',background:'rgba(0,0,0,0.6)',border:'1px solid var(--border)',borderBottom:'2px solid rgba(255,255,255,0.18)',padding:'13px 16px',color:'var(--white)',fontSize:15,letterSpacing:3,outline:'none',WebkitAppearance:'none'}}/>
+          </div>
+        ))}
+        <div style={{height:18,marginBottom:10,fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--red)',opacity:err?1:0,transition:'opacity .2s'}}>{err||'‌'}</div>
+        <button onClick={submit} disabled={loading||!p1||!p2} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:4,textTransform:'uppercase',background:loading||!p1||!p2?'rgba(230,48,34,0.28)':'var(--red)',color:'white',border:'none',padding:15,cursor:loading||!p1||!p2?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+          {loading?<><Spin size={14}/>SALVEZ...</>:'✓ SETEAZĂ PAROLA'}
+        </button>
+        <div style={{marginTop:24,textAlign:'center',fontFamily:'var(--fd)',fontSize:9,letterSpacing:2,color:'rgba(255,255,255,0.08)',textTransform:'uppercase'}}>Pagină privată · Parolă hashed SHA-256 · Fără text plain în cod</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   LOGIN SCREEN
+═══════════════════════════════════════════════ */
+function LoginScreen({onLogin}){
+  const[pass,setPass]=useState('');const[err,setErr]=useState(false);
+  const[shake,setShake]=useState(false);const[loading,setLoading]=useState(false);
+  const[glitch,setGlitch]=useState(false);
+  const mob=useIsMobile();const ref=useRef(null);
+  useEffect(()=>{ref.current?.focus();const id=setInterval(()=>setGlitch(g=>!g),3800);return()=>clearInterval(id);},[]);
+  const submit=async()=>{
+    if(!pass)return; setLoading(true);
+    const ok=await verifyPassword(pass);
+    if(ok){setSession();onLogin();}
+    else{setErr(true);setShake(true);setLoading(false);setPass('');setTimeout(()=>setShake(false),500);setTimeout(()=>setErr(false),2500);ref.current?.focus();}
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'var(--black)',display:'flex',alignItems:'center',justifyContent:'center',padding:16,position:'relative',overflow:'hidden'}}>
+      <div style={{position:'absolute',inset:0,background:'repeating-linear-gradient(0deg,rgba(255,255,255,0.011) 0,rgba(255,255,255,0.011) 1px,transparent 1px,transparent 4px)',pointerEvents:'none'}}/>
+      <Corners/>
+      <div style={{position:'relative',zIndex:2,width:'100%',maxWidth:420,padding:mob?'36px 24px':'52px 44px',border:'1px solid rgba(255,255,255,0.06)',background:'rgba(255,255,255,0.015)',backdropFilter:'blur(10px)',animation:'scaleIn .5s ease',borderRadius:mob?12:0,transform:shake?'translateX(-6px)':'translateX(0)',transition:shake?'transform 0s':'transform .4s cubic-bezier(.36,.07,.19,.97)'}}>
+        <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:'var(--red)',animation:'pulse 2.2s ease infinite',borderRadius:mob?'12px 12px 0 0':0}}/>
+        <div style={{textAlign:'center',marginBottom:44}}>
+          <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?26:30,letterSpacing:7,textTransform:'uppercase',color:'var(--white)',animation:glitch?'glitch .25s ease':'none',display:'inline-block'}}>HIGH<span style={{color:'var(--grey2)'}}>EDITS</span></div>
+          <div style={{fontFamily:'var(--fd)',fontWeight:600,fontSize:10,letterSpacing:4,textTransform:'uppercase',color:'rgba(255,255,255,0.18)',marginTop:8}}>ADMIN ACCESS REQUIRED</div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:28}}>
+          <div style={{flex:1,height:1,background:'var(--border)'}}/>
+          <div style={{fontFamily:'var(--fd)',fontSize:10,letterSpacing:3,color:'var(--grey)',textTransform:'uppercase'}}>AUTH</div>
+          <div style={{flex:1,height:1,background:'var(--border)'}}/>
+        </div>
+        <label style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:8,display:'block'}}>Parolă</label>
+        <div style={{position:'relative',marginBottom:8}}>
+          <input ref={ref} type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr(false);}} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="••••••••" style={{width:'100%',background:'rgba(0,0,0,0.6)',border:'1px solid',borderColor:err?'var(--red)':'rgba(255,255,255,0.1)',borderBottom:`2px solid ${err?'var(--red)':'rgba(255,255,255,0.2)'}`,padding:'13px 44px 13px 16px',color:'var(--white)',fontSize:mob?16:18,letterSpacing:4,outline:'none',WebkitAppearance:'none'}}/>
+          <span style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',width:2,height:18,background:'var(--red)',animation:'blink 1s ease infinite',display:pass?'none':'block'}}/>
+        </div>
+        <div style={{height:18,marginBottom:12,fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:1,color:'var(--red)',opacity:err?1:0,transition:'opacity .2s'}}>✗ ACCES REFUZAT</div>
+        <button onClick={submit} disabled={loading||!pass} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:13,letterSpacing:4,textTransform:'uppercase',background:loading||!pass?'rgba(230,48,34,0.28)':'var(--red)',color:'white',border:'none',padding:15,cursor:loading||!pass?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+          {loading?<><Spin size={14}/>AUTENTIFICARE...</>:'→ INTRĂ ÎN ADMIN'}
+        </button>
+        <div style={{marginTop:28,textAlign:'center',fontFamily:'var(--fd)',fontSize:9,letterSpacing:2,color:'rgba(255,255,255,0.08)',textTransform:'uppercase'}}>Pagină privată · SHA-256 hash auth</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   MAL IMPORT
+═══════════════════════════════════════════════ */
+function MalImport({library,onImport,onClose,showToast}){
+  const[uname,setUname]=useState('');
+  const[phase,setPhase]=useState('idle');
+  const[preview,setPreview]=useState([]);
+  const[sel,setSel]=useState(new Set());
+  const[loadMsg,setLoadMsg]=useState('');
+  const[errMsg,setErrMsg]=useState('');
+  const mob=useIsMobile();
+
+  const existIds=useMemo(()=>new Set(library.map(a=>a.mal_id)),[library]);
+
+  const fetchList=async()=>{
+    if(!uname.trim()){setErrMsg('Introdu un username MAL');return;}
+    setPhase('loading');setErrMsg('');setPreview([]);
+    try{
+      let page=1,all=[],hasMore=true;
+      while(hasMore){
+        setLoadMsg(`Se încarcă pagina ${page}...`);
+        const d=await jikan(`/users/${encodeURIComponent(uname.trim())}/animelist?page=${page}`);
+        if(!d){throw new Error('Eroare la conexiune cu Jikan API');}
+        if(d.error||d.status===404){throw new Error(d.message||'Username invalid sau lista privată');}
+        const data=d.data||[];
+        all=[...all,...data];
+        hasMore=!!(d.pagination?.has_next_page);
+        page++;
+        if(hasMore) await new Promise(r=>setTimeout(r,650));
+      }
+      const mapped=all.map(e=>{
+        const a=e.node||e;
+        return{
+          mal_id:a.mal_id,title:a.title,title_english:a.title_english||null,
+          image:a.images?.jpg?.large_image_url||a.images?.jpg?.image_url||e.images?.jpg?.large_image_url||'',
+          image_sm:a.images?.jpg?.small_image_url||e.images?.jpg?.small_image_url||'',
+          score:a.score||null,episodes:a.episodes||null,
+          year:a.aired?.prop?.from?.year||null,
+          genres:(a.genres||[]).map(g=>g.name),synopsis:a.synopsis||'',type:a.type||'',
+          status:MAL_STATUS[e.watching_status]||'plan_to_watch',
+          userScore:e.score||null,epsWatched:e.watched_episodes||0,
+          notes:e.tags||'',addedAt:Date.now(),_fromMAL:true,
+        };
+      }).filter(a=>a.mal_id);
+      setPreview(mapped);
+      setSel(new Set(mapped.filter(a=>!existIds.has(a.mal_id)).map(a=>a.mal_id)));
+      setPhase('preview');
+    }catch(e){setErrMsg(e.message||'Eroare necunoscută');setPhase('error');}
+  };
+
+  const toggle=id=>setSel(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const selAll=()=>setSel(new Set(preview.filter(a=>!existIds.has(a.mal_id)).map(a=>a.mal_id)));
+  const desel=()=>setSel(new Set());
+
+  const doImport=()=>{
+    const items=preview.filter(a=>sel.has(a.mal_id));
+    onImport(items);showToast(`✓ ${items.length} anime importate!`,'ok');
+    setPhase('done');setTimeout(onClose,1600);
+  };
+
+  const newCnt=preview.filter(a=>!existIds.has(a.mal_id)).length;
+  const dupCnt=preview.filter(a=>existIds.has(a.mal_id)).length;
+  const smC={watching:'#7c8fff',completed:'#4ecdc4',plan_to_watch:'#ff6b9d',dropped:'#ff4444'};
+  const smL={watching:'Urmăresc',completed:'Terminat',plan_to_watch:'Plan',dropped:'Dropped'};
+
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:900,background:'rgba(0,0,0,0.92)',backdropFilter:'blur(7px)',display:'flex',alignItems:mob?'flex-end':'center',justifyContent:'center',padding:mob?0:24,animation:'fadeIn .2s'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:'var(--dark)',border:mob?'none':'1px solid var(--border)',borderTop:'2px solid var(--blue)',maxWidth:mob?'100%':680,width:'100%',maxHeight:mob?'92vh':'88vh',overflowY:'auto',borderRadius:mob?'18px 18px 0 0':0,animation:mob?'slideUp .3s ease':'scaleIn .25s ease',paddingBottom:'env(safe-area-inset-bottom,0px)'}}>
+        {mob&&<div style={{display:'flex',justifyContent:'center',padding:'12px 0 4px'}}><div style={{width:36,height:4,background:'rgba(255,255,255,0.12)',borderRadius:2}}/></div>}
+        <div style={{padding:mob?'12px 16px 0':'22px 26px 0',display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16}}>
+          <div>
+            <h2 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:26,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',display:'flex',alignItems:'center',gap:8}}><span style={{color:'var(--blue)'}}>↓</span> Import MyAnimeList</h2>
+            <p style={{fontSize:12,color:'var(--grey2)',marginTop:3}}>Importă lista publică a oricărui cont MAL via Jikan API — gratuit, fără autentificare</p>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--grey2)',fontSize:22,cursor:'pointer',flexShrink:0,lineHeight:1}}>✕</button>
+        </div>
+
+        <div style={{padding:mob?'14px 16px 24px':'0 26px 26px'}}>
+          {/* Search row */}
+          <div style={{display:'flex',gap:8,marginTop:mob?0:18,marginBottom:18}}>
+            <input value={uname} onChange={e=>{setUname(e.target.value);setPhase('idle');setErrMsg('');}} onKeyDown={e=>e.key==='Enter'&&fetchList()} placeholder="Username MyAnimeList (ex: Nekomata1037)" style={{flex:1,background:'rgba(0,0,0,0.55)',border:'1px solid var(--border)',borderBottom:'2px solid var(--blue)',padding:'12px 14px',color:'var(--white)',fontSize:14,outline:'none',WebkitAppearance:'none'}}/>
+            <button onClick={fetchList} disabled={phase==='loading'} style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:11,letterSpacing:3,textTransform:'uppercase',background:phase==='loading'?'rgba(74,158,255,0.25)':'var(--blue)',color:'white',border:'none',padding:'0 18px',cursor:phase==='loading'?'not-allowed':'pointer',flexShrink:0,display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
+              {phase==='loading'?<><Spin size={12} color="white"/>Caut...</>:'CAUTĂ'}
+            </button>
+          </div>
+
+          {phase==='idle'&&(
+            <div style={{background:'rgba(74,158,255,0.06)',border:'1px solid rgba(74,158,255,0.18)',borderLeft:'3px solid var(--blue)',padding:'14px 16px'}}>
+              <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2,textTransform:'uppercase',color:'var(--blue)',marginBottom:6}}>Instrucțiuni</div>
+              <div style={{fontSize:12,color:'rgba(255,255,255,0.45)',lineHeight:1.75}}>
+                ① Introdu username-ul contului MyAnimeList<br/>
+                ② Lista trebuie să fie <strong style={{color:'rgba(255,255,255,0.65)'}}>Publică</strong> în MAL Settings → Privacy<br/>
+                ③ Selectezi anime-urile dorite (pre-selectate cele noi)<br/>
+                ④ Status, scor și episoade se copiază automat
+              </div>
+            </div>
+          )}
+
+          {phase==='loading'&&(
+            <div style={{textAlign:'center',padding:'40px 20px',color:'var(--grey2)'}}>
+              <Spin size={36} color="var(--blue)"/>
+              <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:12,letterSpacing:3,textTransform:'uppercase',marginTop:16,color:'var(--blue)'}}>{loadMsg||'Se încarcă...'}</div>
+              <div style={{fontSize:12,color:'var(--grey2)',marginTop:8}}>Jikan API are rate limiting — poate dura câteva secunde</div>
+            </div>
+          )}
+
+          {phase==='error'&&(
+            <div style={{background:'rgba(230,48,34,0.08)',border:'1px solid rgba(230,48,34,0.25)',borderLeft:'3px solid var(--red)',padding:'14px 16px'}}>
+              <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:12,letterSpacing:1,textTransform:'uppercase',color:'var(--red)',marginBottom:4}}>✗ Eroare import</div>
+              <div style={{fontSize:13,color:'rgba(255,255,255,0.5)',marginBottom:8}}>{errMsg}</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.28)'}}>Verifică: username corect? Lista publică? (MAL → Settings → Privacy → Anime List = Public)</div>
+            </div>
+          )}
+
+          {phase==='done'&&(
+            <div style={{textAlign:'center',padding:'40px 20px'}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:24,letterSpacing:1,textTransform:'uppercase',color:'var(--green)'}}>Import reușit!</div>
+            </div>
+          )}
+
+          {phase==='preview'&&preview.length>0&&(
+            <div>
+              {/* Summary cards */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:14}}>
+                {Object.entries(smL).map(([k,lbl])=>{
+                  const cnt=preview.filter(a=>a.status===k).length;
+                  return cnt>0?<div key={k} style={{padding:'8px 4px',background:'rgba(0,0,0,0.35)',border:`1px solid ${smC[k]}22`,textAlign:'center'}}><div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:22,color:smC[k]}}>{cnt}</div><div style={{fontFamily:'var(--fd)',fontSize:9,letterSpacing:1.5,textTransform:'uppercase',color:smC[k],opacity:0.7}}>{lbl}</div></div>:null;
+                })}
+              </div>
+              {/* Header row */}
+              <div style={{display:'flex',gap:10,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
+                <div style={{flex:1}}>
+                  <span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:14,color:'var(--white)'}}>{preview.length} anime găsite</span>
+                  <span style={{fontFamily:'var(--fd)',fontSize:12,color:'var(--green)',marginLeft:10}}>+{newCnt} noi</span>
+                  {dupCnt>0&&<span style={{fontFamily:'var(--fd)',fontSize:12,color:'var(--grey2)',marginLeft:8}}>{dupCnt} deja existente</span>}
+                </div>
+                <button onClick={selAll} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:2,textTransform:'uppercase',background:'none',border:'1px solid rgba(78,205,196,0.3)',color:'var(--green)',padding:'6px 12px',cursor:'pointer'}}>✓ Noi</button>
+                <button onClick={desel} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:2,textTransform:'uppercase',background:'none',border:'1px solid var(--border)',color:'var(--grey2)',padding:'6px 12px',cursor:'pointer'}}>✗ Reset</button>
+              </div>
+              {/* List */}
+              <div style={{maxHeight:mob?260:320,overflowY:'auto',border:'1px solid var(--border)',marginBottom:14}}>
+                {preview.map(a=>{
+                  const inLib=existIds.has(a.mal_id);const isSel=sel.has(a.mal_id);const sc=smC[a.status]||'#888';const sl=smL[a.status]||'';
+                  return(
+                    <div key={a.mal_id} onClick={()=>!inLib&&toggle(a.mal_id)} style={{display:'flex',gap:10,padding:'9px 12px',borderBottom:'1px solid rgba(255,255,255,0.04)',cursor:inLib?'default':'pointer',background:isSel&&!inLib?'rgba(74,158,255,0.06)':inLib?'rgba(255,255,255,0.01)':'transparent',transition:'background .15s',alignItems:'center'}}>
+                      <div style={{width:17,height:17,border:`1.5px solid ${inLib?'var(--grey)':isSel?'var(--blue)':'rgba(255,255,255,0.18)'}`,background:isSel&&!inLib?'var(--blue)':inLib?'rgba(78,205,196,0.15)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
+                        {inLib?<span style={{color:'var(--green)',fontSize:10,lineHeight:1}}>✓</span>:isSel?<span style={{color:'white',fontSize:10,lineHeight:1}}>✓</span>:null}
+                      </div>
+                      <img src={a.image_sm||a.image} style={{width:30,height:43,objectFit:'cover',flexShrink:0,opacity:inLib?0.35:1}} alt=""/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:13,color:inLib?'rgba(255,255,255,0.3)':'var(--white)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.title_english||a.title}</div>
+                        <div style={{display:'flex',gap:7,marginTop:2,flexWrap:'wrap',alignItems:'center'}}>
+                          <span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:1.5,textTransform:'uppercase',padding:'1px 6px',border:`1px solid ${sc}`,color:sc}}>{sl}</span>
+                          {a.userScore&&<span style={{fontFamily:'var(--fd)',fontSize:11,color:'var(--gold)',fontWeight:700}}>★ {a.userScore}</span>}
+                          {a.epsWatched>0&&<span style={{fontSize:11,color:'var(--grey2)'}}>📺 {a.epsWatched}{a.episodes?'/'+a.episodes:''}</span>}
+                          {inLib&&<span style={{fontFamily:'var(--fd)',fontSize:9,letterSpacing:1,textTransform:'uppercase',color:'var(--green)'}}>Există deja</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={doImport} disabled={sel.size===0} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:3,textTransform:'uppercase',background:sel.size===0?'rgba(74,158,255,0.18)':'var(--blue)',color:'white',border:'none',padding:14,cursor:sel.size===0?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                ↓ IMPORTĂ {sel.size} ANIME SELECTATE
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   CHANGE PASSWORD MODAL
+═══════════════════════════════════════════════ */
+function ChangePassModal({onClose,showToast}){
+  const[cur,setCur]=useState('');const[p1,setP1]=useState('');const[p2,setP2]=useState('');
+  const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const mob=useIsMobile();
+  const submit=async()=>{
+    if(!await verifyPassword(cur)){setErr('Parola curentă e incorectă');return;}
+    if(p1.length<6){setErr('Parola nouă trebuie să aibă minim 6 caractere');return;}
+    if(p1!==p2){setErr('Parolele noi nu se potrivesc');return;}
+    setLoading(true);await setPassword(p1);
+    showToast('✓ Parola schimbată cu succes!','ok');onClose();
+  };
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:950,background:'rgba(0,0,0,0.9)',backdropFilter:'blur(5px)',display:'flex',alignItems:mob?'flex-end':'center',justifyContent:'center',padding:mob?0:24,animation:'fadeIn .2s'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:'var(--mid)',border:'1px solid var(--border)',borderTop:'2px solid var(--gold)',maxWidth:420,width:'100%',padding:mob?'20px 16px 28px':'28px',animation:mob?'slideUp .3s':'scaleIn .25s',position:'relative',borderRadius:mob?'16px 16px 0 0':0,paddingBottom:'calc(env(safe-area-inset-bottom,0px) + 28px)'}}>
+        <button onClick={onClose} style={{position:'absolute',top:14,right:14,background:'none',border:'none',color:'var(--grey2)',fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
+        <h3 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:22,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',marginBottom:20}}>🔑 Schimbă Parola</h3>
+        {[['Parola curentă',cur,setCur,'••••••••'],['Parola nouă (min 6 caract.)',p1,setP1,'••••••••'],['Confirmă parola nouă',p2,setP2,'••••••••']].map(([l,v,s,ph])=>(
+          <div key={l} style={{marginBottom:14}}>
+            <label style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:6,display:'block'}}>{l}</label>
+            <input type="password" value={v} onChange={e=>{s(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder={ph} style={{width:'100%',background:'rgba(0,0,0,0.55)',border:'1px solid var(--border)',borderBottom:'2px solid rgba(255,255,255,0.12)',padding:'11px 13px',color:'var(--white)',fontSize:14,letterSpacing:3,outline:'none',WebkitAppearance:'none'}}/>
+          </div>
+        ))}
+        {err&&<div style={{fontFamily:'var(--fd)',fontSize:11,letterSpacing:1,color:'var(--red)',marginBottom:12,textTransform:'uppercase'}}>{err}</div>}
+        <button onClick={submit} disabled={loading} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:3,textTransform:'uppercase',background:loading?'rgba(255,209,102,0.25)':'var(--gold)',color:'var(--black)',border:'none',padding:14,cursor:loading?'wait':'pointer',marginTop:6}}>
+          {loading?'SE SCHIMBĂ...':'SCHIMBĂ PAROLA'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ Shared form styles ═══ */
+const inp={width:'100%',background:'rgba(0,0,0,0.55)',border:'1px solid var(--border)',borderBottom:'2px solid rgba(255,255,255,0.12)',padding:'11px 13px',color:'var(--white)',fontSize:14,outline:'none',transition:'border-color .2s',marginBottom:0,WebkitAppearance:'none'};
+const lbl={fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:7,display:'block'};
+
+function SearchDrop({results,loading,onSelect}){
+  if(!loading&&!results.length) return null;
+  return(
+    <div style={{position:'absolute',top:'100%',left:0,right:0,background:'rgba(5,5,5,0.99)',border:'1px solid var(--border)',borderTop:'2px solid var(--red)',zIndex:300,maxHeight:300,overflowY:'auto'}}>
+      {loading?<div style={{padding:'14px 16px',color:'var(--grey2)',fontSize:13,display:'flex',alignItems:'center',gap:8}}><Spin/>Caut...</div>
+      :results.map(a=>(
+        <div key={a.mal_id} onClick={()=>onSelect(a)} style={{display:'flex',gap:12,padding:'10px 14px',borderBottom:'1px solid rgba(255,255,255,0.03)',cursor:'pointer',alignItems:'center'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.03)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+          <img src={a.image_sm} style={{width:32,height:46,objectFit:'cover',flexShrink:0}} alt=""/>
+          <div style={{flex:1,minWidth:0}}><div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',color:'var(--white)'}}>{a.title}</div><div style={{fontSize:11,color:'var(--grey2)',marginTop:2}}>{a.type} • ★ {a.score||'N/A'} • {a.episodes||'?'} ep</div></div>
+          <div style={{color:'var(--red)',fontSize:20,fontWeight:700,flexShrink:0}}>+</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EditModal({anime,onSave,onClose}){
+  const[status,setStatus]=useState(anime.status||'watching');
+  const[score,setScore]=useState(anime.userScore||'');
+  const[eps,setEps]=useState(anime.epsWatched||0);
+  const[notes,setNotes]=useState(anime.notes||'');
+  const mob=useIsMobile();
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:800,background:'rgba(0,0,0,0.9)',backdropFilter:'blur(6px)',display:'flex',alignItems:mob?'flex-end':'center',justifyContent:'center',padding:mob?0:24,animation:'fadeIn .2s'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:'var(--mid)',border:'1px solid var(--border)',borderTop:'2px solid var(--red)',maxWidth:460,width:'100%',padding:mob?'20px 16px 28px':'28px',animation:mob?'slideUp .3s':'scaleIn .25s',position:'relative',borderRadius:mob?'16px 16px 0 0':0,paddingBottom:'calc(env(safe-area-inset-bottom,0px) + '+(mob?'28':'0')+'px)'}}>
+        <button onClick={onClose} style={{position:'absolute',top:14,right:14,background:'none',border:'none',color:'var(--grey2)',fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
+        <div style={{display:'flex',gap:12,marginBottom:20,alignItems:'flex-start'}}><img src={anime.image} style={{width:48,height:68,objectFit:'cover',flexShrink:0}} alt=""/><div><div style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:16,lineHeight:1.2,color:'var(--white)',marginBottom:3}}>{anime.title_english||anime.title}</div><div style={{fontSize:12,color:'var(--grey2)'}}>{anime.type} • {anime.episodes||'?'} ep</div></div></div>
+        <label style={lbl}>Status</label>
+        <select value={status} onChange={e=>setStatus(e.target.value)} style={{...inp,marginBottom:14}}>
+          <option value="watching">🟣 Urmăresc</option><option value="completed">🔵 Terminat</option><option value="plan_to_watch">🩷 Plan de vizionat</option><option value="dropped">🔴 Dropped</option>
+        </select>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+          <div><label style={lbl}>Scor (1–10)</label><input type="number" inputMode="numeric" min={1} max={10} value={score} onChange={e=>setScore(e.target.value)} placeholder="—" style={inp}/></div>
+          <div><label style={lbl}>Ep. Vizionate</label><input type="number" inputMode="numeric" min={0} max={anime.episodes||9999} value={eps} onChange={e=>setEps(e.target.value)} style={inp}/></div>
+        </div>
+        <label style={lbl}>Note</label>
+        <input type="text" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opțional..." style={{...inp,marginBottom:20}}/>
+        <button onClick={()=>onSave({status,userScore:parseInt(score)||null,epsWatched:parseInt(eps)||0,notes})} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:3,textTransform:'uppercase',background:'var(--red)',color:'white',border:'none',padding:14,cursor:'pointer'}}>SALVEAZĂ</button>
+      </div>
+    </div>
+  );
+}
+
+function DelConfirm({onConfirm,onClose}){
+  const mob=useIsMobile();
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:850,background:'rgba(0,0,0,0.9)',backdropFilter:'blur(5px)',display:'flex',alignItems:mob?'flex-end':'center',justifyContent:'center',padding:mob?0:24,animation:'fadeIn .2s'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:'var(--mid)',border:'1px solid var(--border)',borderTop:'2px solid var(--red)',maxWidth:340,width:'100%',padding:28,textAlign:'center',animation:mob?'slideUp .3s':'scaleIn .2s',borderRadius:mob?'16px 16px 0 0':0,paddingBottom:'calc(env(safe-area-inset-bottom,0px) + 28px)'}}>
+        <div style={{fontSize:28,marginBottom:14}}>⚠️</div>
+        <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:20,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',marginBottom:8}}>Confirmi ștergerea?</div>
+        <div style={{fontSize:13,color:'var(--grey2)',marginBottom:22}}>Nu poate fi anulată</div>
+        <div style={{display:'flex',gap:10,justifyContent:'center'}}>
+          <button onClick={onClose} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2,textTransform:'uppercase',background:'none',border:'1px solid var(--border)',color:'var(--grey2)',padding:'10px 22px',cursor:'pointer'}}>ANULEAZĂ</button>
+          <button onClick={onConfirm} style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:11,letterSpacing:2,textTransform:'uppercase',background:'var(--red)',color:'white',border:'none',padding:'10px 22px',cursor:'pointer'}}>ȘTERGE</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   MUSIC PANEL
+═══════════════════════════════════════════════ */
+function MusicPanel({showToast}){
+  const[tracks,setTracks]=useState(getMusic);
+  const[title,setTitle]=useState('');
+  const[artist,setArtist]=useState('');
+  const[type,setType]=useState('mp3'); // mp3 | youtube | spotify
+  const[link,setLink]=useState('');
+  const[mp3Data,setMp3Data]=useState(null);
+  const[mp3Name,setMp3Name]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[delId,setDelId]=useState(null);
+  const fileRef=useRef(null);
+  const mob=useIsMobile();
+
+  useEffect(()=>{saveMusic(tracks);},[tracks]);
+
+  const onFile=e=>{
+    const f=e.target.files[0];
+    if(!f)return;
+    if(!f.type.startsWith('audio/')){showToast('Selectează un fișier audio!','err');return;}
+    if(f.size>20*1024*1024){showToast('Fișier prea mare (max 20MB)','err');return;}
+    setLoading(true);
+    const reader=new FileReader();
+    reader.onload=ev=>{setMp3Data(ev.target.result);setMp3Name(f.name.replace(/\.[^.]+$/,''));if(!title)setTitle(f.name.replace(/\.[^.]+$/,''));setLoading(false);};
+    reader.readAsDataURL(f);
+  };
+
+  const extractYtId=url=>{
+    const m=url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+    return m?m[1]:null;
+  };
+  const extractSpotifyId=url=>{
+    const m=url.match(/spotify\.com\/track\/([a-zA-Z0-9]+)/);
+    return m?m[1]:null;
+  };
+
+  const addTrack=()=>{
+    if(!title.trim()){showToast('Introdu un titlu!','err');return;}
+    if(type==='mp3'&&!mp3Data){showToast('Selectează un fișier MP3!','err');return;}
+    if(type==='youtube'){
+      const id=extractYtId(link);
+      if(!id){showToast('Link YouTube invalid!','err');return;}
+      const t={id:Date.now(),title:title.trim(),artist:artist.trim(),type:'youtube',ytId:id,addedAt:Date.now()};
+      setTracks(p=>[...p,t]);showToast(`✓ "${t.title}" adăugat!`,'ok');
+      setTitle('');setArtist('');setLink('');return;
+    }
+    if(type==='spotify'){
+      const id=extractSpotifyId(link);
+      if(!id){showToast('Link Spotify invalid! (necesită link de tip .../track/...)','err');return;}
+      const t={id:Date.now(),title:title.trim(),artist:artist.trim(),type:'spotify',spotifyId:id,addedAt:Date.now()};
+      setTracks(p=>[...p,t]);showToast(`✓ "${t.title}" adăugat!`,'ok');
+      setTitle('');setArtist('');setLink('');return;
+    }
+    // mp3
+    const t={id:Date.now(),title:title.trim(),artist:artist.trim(),type:'mp3',src:mp3Data,addedAt:Date.now()};
+    setTracks(p=>[...p,t]);showToast(`✓ "${t.title}" adăugat!`,'ok');
+    setTitle('');setArtist('');setMp3Data(null);setMp3Name('');setLink('');
+    if(fileRef.current)fileRef.current.value='';
+  };
+
+  const removeTrack=id=>{setTracks(p=>p.filter(t=>t.id!==id));setDelId(null);showToast('Track șters','ok');};
+
+  const inpS={width:'100%',background:'rgba(0,0,0,0.55)',border:'1px solid rgba(255,255,255,0.07)',borderBottom:'2px solid rgba(255,255,255,0.12)',padding:'11px 13px',color:'#fff',fontSize:14,outline:'none',WebkitAppearance:'none',marginBottom:0};
+  const lblS={fontFamily:'var(--fd)',fontWeight:700,fontSize:10,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:7,display:'block'};
+
+  const typeColors={'mp3':'#c9a84c','youtube':'#ff4444','spotify':'#1db954'};
+  const typeIcon={'mp3':'🎵','youtube':'▶','spotify':'♫'};
+
+  return(
+    <div style={{padding:mob?'20px 16px 80px':40}}>
+      <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:24,letterSpacing:1,textTransform:'uppercase',color:'#fff',marginBottom:24,paddingBottom:14,borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:10}}>
+        <span style={{color:'var(--gold)'}}>♪</span> Muzică
+      </div>
+
+      {/* Type selector */}
+      <div style={{display:'flex',gap:2,marginBottom:20,background:'rgba(255,255,255,0.03)',padding:3,borderRadius:2}}>
+        {[['mp3','MP3'],['youtube','YouTube'],['spotify','Spotify']].map(([k,l])=>(
+          <button key={k} onClick={()=>{setType(k);setLink('');}} style={{flex:1,fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2,textTransform:'uppercase',padding:'9px 0',background:type===k?typeColors[k]:'transparent',color:type===k?'#000':'rgba(255,255,255,0.35)',border:'none',cursor:'pointer',transition:'all .2s',borderRadius:1}}>{typeIcon[k]} {l}</button>
+        ))}
+      </div>
+
+      {/* Title + Artist */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+        <div>
+          <label style={lblS}>Titlu *</label>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="Numele melodiei" style={inpS}/>
+        </div>
+        <div>
+          <label style={lblS}>Artist</label>
+          <input value={artist} onChange={e=>setArtist(e.target.value)} placeholder="Opțional" style={inpS}/>
+        </div>
+      </div>
+
+      {/* MP3 upload */}
+      {type==='mp3'&&(
+        <div style={{marginBottom:14}}>
+          <label style={lblS}>Fișier Audio (max 20MB)</label>
+          <div onClick={()=>fileRef.current?.click()} style={{border:'2px dashed rgba(201,168,76,0.3)',background:mp3Data?'rgba(201,168,76,0.05)':'rgba(255,255,255,0.01)',padding:'18px 16px',cursor:'pointer',textAlign:'center',transition:'all .2s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(201,168,76,0.55)'} onMouseLeave={e=>e.currentTarget.style.borderColor='rgba(201,168,76,0.3)'}>
+            {loading?<span style={{color:'var(--grey2)',fontSize:12}}>Se încarcă...</span>
+            :mp3Data?<span style={{color:'var(--gold)',fontFamily:'var(--fd)',fontWeight:700,fontSize:13}}>🎵 {mp3Name}</span>
+            :<span style={{color:'var(--grey2)',fontSize:12}}>Apasă sau trage fișierul MP3/AAC/OGG</span>}
+          </div>
+          <input ref={fileRef} type="file" accept="audio/*" onChange={onFile} style={{display:'none'}}/>
+        </div>
+      )}
+
+      {/* YouTube link */}
+      {type==='youtube'&&(
+        <div style={{marginBottom:14}}>
+          <label style={lblS}>Link YouTube</label>
+          <input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://youtube.com/watch?v=..." style={inpS}/>
+          <div style={{fontSize:11,color:'rgba(255,255,255,0.2)',marginTop:6}}>Acceptă linkuri youtube.com și youtu.be</div>
+        </div>
+      )}
+
+      {/* Spotify link */}
+      {type==='spotify'&&(
+        <div style={{marginBottom:14}}>
+          <label style={lblS}>Link Spotify</label>
+          <input value={link} onChange={e=>setLink(e.target.value)} placeholder="https://open.spotify.com/track/..." style={inpS}/>
+          <div style={{fontSize:11,color:'rgba(255,255,255,0.2)',marginTop:6}}>Necesită link de tip /track/ — se va deschide în Spotify</div>
+        </div>
+      )}
+
+      <button onClick={addTrack} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:4,textTransform:'uppercase',background:`${typeColors[type]}`,color:'#000',border:'none',padding:14,cursor:'pointer',marginBottom:28,marginTop:4}}>
+        + ADAUGĂ MELODIE
+      </button>
+
+      {/* Track list */}
+      {tracks.length>0&&(
+        <>
+        <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:3,textTransform:'uppercase',color:'var(--grey2)',marginBottom:12}}>{tracks.length} melodii în playlist</div>
+        <div style={{display:'flex',flexDirection:'column',gap:2}}>
+          {tracks.map((t,i)=>(
+            <div key={t.id} style={{display:'flex',gap:10,alignItems:'center',padding:'10px 12px',background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.05)'}}>
+              <span style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:11,color:'rgba(255,255,255,0.15)',width:20,flexShrink:0,textAlign:'right'}}>{String(i+1).padStart(2,'0')}</span>
+              <span style={{fontSize:14,flexShrink:0}}>{typeIcon[t.type]}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:13,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.title}</div>
+                {t.artist&&<div style={{fontSize:11,color:'var(--grey2)',marginTop:1}}>{t.artist}</div>}
+              </div>
+              <span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:8,letterSpacing:1.5,textTransform:'uppercase',padding:'2px 6px',border:`1px solid ${typeColors[t.type]}44`,color:typeColors[t.type],flexShrink:0}}>{t.type}</span>
+              {delId===t.id?(
+                <div style={{display:'flex',gap:6,flexShrink:0}}>
+                  <button onClick={()=>removeTrack(t.id)} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,background:'rgba(255,68,68,0.15)',border:'1px solid rgba(255,68,68,0.4)',color:'#ff6666',padding:'4px 8px',cursor:'pointer'}}>DA</button>
+                  <button onClick={()=>setDelId(null)} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,background:'none',border:'1px solid rgba(255,255,255,0.1)',color:'var(--grey2)',padding:'4px 8px',cursor:'pointer'}}>NU</button>
+                </div>
+              ):(
+                <button onClick={()=>setDelId(t.id)} style={{background:'none',border:'1px solid rgba(255,68,68,0.15)',color:'rgba(255,68,68,0.4)',padding:'4px 8px',cursor:'pointer',fontSize:12,flexShrink:0,transition:'all .2s'}} onMouseEnter={e=>{e.currentTarget.style.color='#ff4444';e.currentTarget.style.borderColor='rgba(255,68,68,0.4)';}} onMouseLeave={e=>{e.currentTarget.style.color='rgba(255,68,68,0.4)';e.currentTarget.style.borderColor='rgba(255,68,68,0.15)';}}>✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        </>
+      )}
+
+      {tracks.length===0&&(
+        <div style={{textAlign:'center',padding:'40px 20px',color:'rgba(255,255,255,0.1)'}}>
+          <div style={{fontSize:36,marginBottom:10}}>🎵</div>
+          <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:18,letterSpacing:1,textTransform:'uppercase'}}>Nicio melodie</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   ADMIN PANEL
+═══════════════════════════════════════════════ */
+function AdminPanel({onLogout}){
+  const[library,setLibrary]=useState(getLib);
+  const[tab,setTab]=useState('add');
+  const[searchQ,setSearchQ]=useState('');
+  const[results,setResults]=useState([]);
+  const[srLoad,setSrLoad]=useState(false);
+  const[selAnime,setSelAnime]=useState(null);
+  const[status,setStatus]=useState('watching');
+  const[score,setScore]=useState('');
+  const[eps,setEps]=useState('');
+  const[notes,setNotes]=useState('');
+  const[listFilter,setListFilter]=useState('all');
+  const[editItem,setEditItem]=useState(null);
+  const[delId,setDelId]=useState(null);
+  const[showImport,setShowImport]=useState(false);
+  const[showCPass,setShowCPass]=useState(false);
+  const[settingsOpen,setSettingsOpen]=useState(false);
+  const[showMusicPanel,setShowMusicPanel]=useState(false);
+  const[toast,showToast]=useToast();
+  const srTimer=useRef(null);const wrapRef=useRef(null);
+  const mob=useIsMobile();
+
+  useEffect(()=>{saveLib(library);},[library]);
+
+  useEffect(()=>{
+    const h=e=>{if(wrapRef.current&&!wrapRef.current.contains(e.target))setResults([]);};
+    document.addEventListener('mousedown',h);document.addEventListener('touchstart',h,{passive:true});
+    return()=>{document.removeEventListener('mousedown',h);document.removeEventListener('touchstart',h);};
+  },[]);
+
+  useEffect(()=>{
+    clearTimeout(srTimer.current);
+    if(!searchQ.trim()){setResults([]);return;}
+    srTimer.current=setTimeout(async()=>{setSrLoad(true);const d=await jikan(`/anime?q=${encodeURIComponent(searchQ)}&limit=8&sfw=true`);setResults(d?.data?.map(mapJikanAnime)||[]);setSrLoad(false);},420);
+  },[searchQ]);
+
+  const selectAnime=a=>{setSelAnime(a);setResults([]);setSearchQ(a.title);setEps(0);setScore('');setNotes('');};
+  const addAnime=()=>{
+    if(!selAnime){showToast('Selectează un anime!','err');return;}
+    if(library.some(x=>x.mal_id===selAnime.mal_id)){showToast('Deja în colecție!','err');return;}
+    const entry={...selAnime,status,userScore:parseInt(score)||null,epsWatched:parseInt(eps)||0,notes,addedAt:Date.now()};
+    setLibrary(p=>[entry,...p]);setSelAnime(null);setSearchQ('');setScore('');setEps('');setNotes('');setStatus('watching');
+    showToast(`✓ "${entry.title_english||entry.title}" adăugat!`,'ok');
+    if(mob) setTab('list');
+  };
+  const removeAnime=id=>{setLibrary(p=>p.filter(a=>a.mal_id!==id));setDelId(null);showToast('Eliminat','ok');};
+  const saveEdit=(id,ch)=>{setLibrary(p=>p.map(a=>a.mal_id===id?{...a,...ch}:a));setEditItem(null);showToast('Modificat!','ok');};
+  const handleImport=items=>{
+    setLibrary(prev=>{const ex=new Set(prev.map(a=>a.mal_id));const nw=items.filter(a=>!ex.has(a.mal_id));return[...nw,...prev];});
+  };
+  const deleteAll=()=>{if(window.confirm('Ștergi TOATĂ colecția?')){setLibrary([]);showToast('Colecție ștearsă','ok');setSettingsOpen(false);}};
+
+  const filtered=useMemo(()=>listFilter==='all'?library:library.filter(a=>a.status===listFilter),[library,listFilter]);
+  const sc={all:library.length,watching:library.filter(a=>a.status==='watching').length,completed:library.filter(a=>a.status==='completed').length,plan_to_watch:library.filter(a=>a.status==='plan_to_watch').length,dropped:library.filter(a=>a.status==='dropped').length};
+
+  const FormPanel=()=>(
+    <div style={{padding:mob?'20px 16px 80px':40}}>
+      <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:24,letterSpacing:1,textTransform:'uppercase',color:'var(--white)',marginBottom:20,paddingBottom:14,borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10}}><span style={{color:'var(--red)'}}>＋</span>Adaugă Anime</div>
+
+      {/* MAL Import CTA */}
+      <button onClick={()=>setShowImport(true)} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:2,textTransform:'uppercase',background:'rgba(74,158,255,0.1)',color:'var(--blue)',border:'1px solid rgba(74,158,255,0.28)',borderLeft:'3px solid var(--blue)',padding:'13px 16px',cursor:'pointer',display:'flex',alignItems:'center',gap:10,marginBottom:18,transition:'background .2s',textAlign:'left'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(74,158,255,0.17)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(74,158,255,0.1)'}>
+        <span style={{fontSize:20,flexShrink:0}}>↓</span>
+        <div><div>Import din MyAnimeList</div><div style={{fontSize:10,fontWeight:600,color:'rgba(74,158,255,0.6)',letterSpacing:.5,marginTop:2,textTransform:'none'}}>Importă lista unui cont MAL prin username</div></div>
+        <span style={{marginLeft:'auto',opacity:.4}}>→</span>
+      </button>
+
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:18}}>
+        <div style={{flex:1,height:1,background:'var(--border)'}}/>
+        <span style={{fontFamily:'var(--fd)',fontSize:10,letterSpacing:3,color:'var(--grey)',textTransform:'uppercase'}}>sau caută manual</span>
+        <div style={{flex:1,height:1,background:'var(--border)'}}/>
+      </div>
+
+      <label style={lbl}>Caută anime (Jikan API)</label>
+      <div ref={wrapRef} style={{position:'relative',marginBottom:18}}>
+        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Tastează titlul..." style={{...inp}} onFocus={e=>e.target.style.borderBottomColor='var(--red)'} onBlur={e=>e.target.style.borderBottomColor='rgba(255,255,255,0.12)'}/>
+        <SearchDrop results={results} loading={srLoad} onSelect={selectAnime}/>
+      </div>
+
+      {selAnime&&(
+        <div style={{display:'flex',gap:12,marginBottom:18,background:'rgba(0,0,0,0.5)',border:'1px solid var(--border)',borderLeft:'3px solid var(--red)',padding:12,alignItems:'flex-start',animation:'fadeUp .2s'}}>
+          <img src={selAnime.image_sm||selAnime.image} style={{width:44,height:62,objectFit:'cover',flexShrink:0}} alt=""/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:15,lineHeight:1.2,color:'var(--white)',marginBottom:3}}>{selAnime.title_english||selAnime.title}</div>
+            <div style={{fontSize:11,color:'var(--grey2)',lineHeight:1.5}}>{selAnime.type} • ★ {selAnime.score||'N/A'} • {selAnime.episodes||'?'} ep</div>
+            <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>{(selAnime.genres||[]).slice(0,3).map(g=><span key={g} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:1,textTransform:'uppercase',padding:'2px 7px',border:'1px solid rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.4)'}}>{g}</span>)}</div>
+          </div>
+          <button onClick={()=>{setSelAnime(null);setSearchQ('');}} style={{background:'none',border:'none',color:'var(--grey2)',fontSize:18,cursor:'pointer',flexShrink:0}}>✕</button>
+        </div>
+      )}
+
+      <label style={lbl}>Status</label>
+      <select value={status} onChange={e=>setStatus(e.target.value)} style={{...inp,marginBottom:14}}>
+        <option value="watching">🟣 Urmăresc</option><option value="completed">🔵 Terminat</option><option value="plan_to_watch">🩷 Plan de vizionat</option><option value="dropped">🔴 Dropped</option>
+      </select>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+        <div><label style={lbl}>Scor (1–10)</label><input type="number" inputMode="numeric" min={1} max={10} value={score} onChange={e=>setScore(e.target.value)} placeholder="—" style={inp}/></div>
+        <div><label style={lbl}>Ep. Vizionate</label><input type="number" inputMode="numeric" min={0} value={eps} onChange={e=>setEps(e.target.value)} placeholder="0" style={inp}/></div>
+      </div>
+      <label style={lbl}>Note personale</label>
+      <input type="text" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Opțional..." style={{...inp,marginBottom:22}}/>
+      <button onClick={addAnime} style={{width:'100%',fontFamily:'var(--fd)',fontWeight:800,fontSize:12,letterSpacing:4,textTransform:'uppercase',background:'var(--red)',color:'white',border:'none',padding:15,cursor:'pointer',opacity:selAnime?1:0.4,transition:'opacity .2s'}}>ADAUGĂ ÎN COLECȚIE</button>
+    </div>
+  );
+
+  const ListPanel=()=>(
+    <div style={{padding:mob?'20px 0 80px':40}}>
+      <div style={{padding:mob?'0 16px 14px':'0 0 14px',display:'flex',alignItems:'baseline',gap:10,paddingBottom:14,borderBottom:'1px solid var(--border)'}}>
+        <h2 style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?20:28,letterSpacing:-1,textTransform:'uppercase',color:'var(--white)'}}>COLECȚIE</h2>
+        <span style={{fontFamily:'var(--fd)',fontSize:13,color:'var(--grey2)'}}>{library.length} titluri</span>
+      </div>
+      <div style={{display:'flex',overflowX:'auto',borderBottom:'1px solid var(--border)',scrollbarWidth:'none'}}>
+        {[['all',`Toate(${sc.all})`],['watching',`🟣${sc.watching}`],['completed',`🔵${sc.completed}`],['plan_to_watch',`🩷${sc.plan_to_watch}`],['dropped',`🔴${sc.dropped}`]].map(([k,l])=>(
+          <button key={k} onClick={()=>setListFilter(k)} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?12:11,letterSpacing:mob?0:2,textTransform:'uppercase',padding:mob?'12px 12px':'13px 15px',background:'none',border:'none',borderBottom:listFilter===k?'2px solid var(--red)':'2px solid transparent',color:listFilter===k?'white':'rgba(255,255,255,0.32)',cursor:'pointer',flexShrink:0,transition:'color .2s'}}>{l}</button>
+        ))}
+      </div>
+      {filtered.length===0?(
+        <div style={{textAlign:'center',padding:'60px 20px',color:'var(--grey)'}}><div style={{fontSize:38,marginBottom:14,opacity:0.15}}>📭</div><div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:26,letterSpacing:-1,textTransform:'uppercase',color:'rgba(255,255,255,0.04)'}}>{listFilter==='all'?'COLECȚIE GOALĂ':'NIMIC AICI'}</div></div>
+      ):(
+        <div>{filtered.map((a,i)=>{
+          const sm=STATUS_META[a.status];const prog=a.episodes&&a.epsWatched?Math.round(a.epsWatched/a.episodes*100):0;
+          return(
+            <div key={a.mal_id} style={{display:'flex',gap:12,alignItems:'center',padding:mob?'11px 16px':'12px 0',borderBottom:'1px solid var(--border)',transition:'background .15s'}} onMouseEnter={e=>!mob&&(e.currentTarget.style.background='rgba(255,255,255,0.02)')} onMouseLeave={e=>!mob&&(e.currentTarget.style.background='transparent')}>
+              <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:12,color:'rgba(255,255,255,0.1)',width:22,flexShrink:0,textAlign:'right'}}>{String(i+1).padStart(2,'0')}</div>
+              <img src={a.image_sm||a.image} style={{width:mob?34:38,height:mob?48:54,objectFit:'cover',flexShrink:0}} alt=""/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?13:15,color:'var(--white)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',marginBottom:3}}>{a.title_english||a.title}</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                  {sm&&<span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:1.5,textTransform:'uppercase',padding:'1px 6px',border:`1px solid ${sm.color}`,color:sm.color}}>{sm.label}</span>}
+                  {a.userScore&&<span style={{fontFamily:'var(--fd)',fontSize:11,color:'var(--gold)',fontWeight:700}}>★ {a.userScore}/10</span>}
+                  {a.epsWatched>0&&<span style={{fontSize:11,color:'var(--grey2)'}}>📺 {a.epsWatched}{a.episodes?'/'+a.episodes:''}</span>}
+                  {a._fromMAL&&<span style={{fontFamily:'var(--fd)',fontSize:9,letterSpacing:1,textTransform:'uppercase',padding:'1px 5px',background:'rgba(74,158,255,0.12)',border:'1px solid rgba(74,158,255,0.25)',color:'var(--blue)'}}>MAL</span>}
+                </div>
+                {prog>0&&<div style={{marginTop:4,height:2,background:'rgba(255,255,255,0.06)'}}><div style={{width:`${prog}%`,height:'100%',background:'var(--red)'}}/></div>}
+              </div>
+              <div style={{display:'flex',gap:6,flexShrink:0}}>
+                <button onClick={()=>setEditItem(a)} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?12:10,letterSpacing:mob?0:1.5,textTransform:'uppercase',background:'none',border:'1px solid var(--border)',color:'var(--grey2)',padding:mob?'7px 10px':'7px 11px',cursor:'pointer',transition:'all .2s'}} onMouseEnter={e=>{e.currentTarget.style.color='white';e.currentTarget.style.borderColor='var(--border2)';}} onMouseLeave={e=>{e.currentTarget.style.color='var(--grey2)';e.currentTarget.style.borderColor='var(--border)';}}>
+                  {mob?'✎':'✎ Edit'}
+                </button>
+                <button onClick={()=>setDelId(a.mal_id)} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?12:10,textTransform:'uppercase',background:'none',border:'1px solid rgba(255,68,68,0.17)',color:'rgba(255,68,68,0.55)',padding:mob?'7px 10px':'7px 11px',cursor:'pointer',transition:'all .2s'}} onMouseEnter={e=>{e.currentTarget.style.color='var(--red)';e.currentTarget.style.borderColor='rgba(230,48,34,0.4)';}} onMouseLeave={e=>{e.currentTarget.style.color='rgba(255,68,68,0.55)';e.currentTarget.style.borderColor='rgba(255,68,68,0.17)';}}>✕</button>
+              </div>
+            </div>
+          );
+        })}</div>
+      )}
+    </div>
+  );
+
+  return(
+    <div style={{minHeight:'100vh',background:'var(--black)'}}>
+      {/* Header */}
+      <header style={{position:'sticky',top:0,zIndex:400,height:56,display:'flex',alignItems:'center',padding:'0 clamp(16px,4vw,40px)',background:'rgba(0,0,0,0.96)',backdropFilter:'blur(16px)',borderBottom:'1px solid var(--border)'}}>
+        <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:18,letterSpacing:4,textTransform:'uppercase',color:'var(--white)',flexShrink:0}}>HIGH<span style={{color:'var(--grey2)'}}>EDITS</span> <span style={{fontSize:10,letterSpacing:3,color:'var(--grey2)',fontWeight:600}}>ADMIN</span></div>
+        <div style={{flex:1}}/>
+        <button onClick={()=>setSettingsOpen(o=>!o)} title="Setări" style={{background:'none',border:'none',color:'var(--grey2)',fontSize:18,cursor:'pointer',padding:'6px 10px',transition:'color .2s',marginRight:4,lineHeight:1}} onMouseEnter={e=>e.currentTarget.style.color='white'} onMouseLeave={e=>e.currentTarget.style.color='var(--grey2)'}>⚙️</button>
+        <a href="index.html" style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2,textTransform:'uppercase',color:'var(--grey2)',marginRight:mob?10:18,cursor:'pointer',textDecoration:'none',transition:'color .2s',whiteSpace:'nowrap'}} onMouseEnter={e=>e.currentTarget.style.color='white'} onMouseLeave={e=>e.currentTarget.style.color='var(--grey2)'}>{mob?'Site':'← Site'}</a>
+        <button onClick={()=>{clearSession();onLogout();}} style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:11,letterSpacing:2,textTransform:'uppercase',background:'transparent',color:'rgba(255,68,68,0.55)',border:'1px solid rgba(255,68,68,0.17)',padding:'6px 12px',cursor:'pointer',transition:'all .2s',whiteSpace:'nowrap'}} onMouseEnter={e=>{e.currentTarget.style.color='var(--red)';e.currentTarget.style.borderColor='rgba(230,48,34,0.45)';}} onMouseLeave={e=>{e.currentTarget.style.color='rgba(255,68,68,0.55)';e.currentTarget.style.borderColor='rgba(255,68,68,0.17)';}}>Exit</button>
+      </header>
+
+      {/* Settings dropdown */}
+      {settingsOpen&&(
+        <>
+        <div style={{position:'fixed',top:56,right:16,zIndex:450,background:'var(--mid)',border:'1px solid var(--border)',borderTop:'2px solid var(--gold)',minWidth:220,animation:'fadeIn .15s',boxShadow:'0 8px 32px rgba(0,0,0,0.6)'}}>
+          <div style={{padding:'8px 0'}}>
+            <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:3,textTransform:'uppercase',color:'var(--grey)',padding:'8px 16px 4px'}}>Setări Admin</div>
+            <button onClick={()=>{setShowCPass(true);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--gold)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>🔑 Schimbă Parola</button>
+            <button onClick={()=>{setShowImport(true);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--blue)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>↓ Import MAL</button>
+            <button onClick={()=>{setShowMusicPanel(p=>!p);setSettingsOpen(false);}} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'var(--gold)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>♪ Playlist Muzică</button>
+            <div style={{height:1,background:'var(--border)',margin:'4px 0'}}/>
+            <button onClick={deleteAll} style={{display:'block',width:'100%',textAlign:'left',fontFamily:'var(--fd)',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',color:'rgba(255,68,68,0.6)',background:'none',border:'none',padding:'12px 16px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.04)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>🗑️ Șterge tot</button>
+          </div>
+        </div>
+        <div style={{position:'fixed',inset:0,zIndex:449}} onClick={()=>setSettingsOpen(false)}/>
+        </>
+      )}
+
+      {/* Stats */}
+      <div style={{display:'grid',gridTemplateColumns:mob?'repeat(3,1fr)':'repeat(5,1fr)',background:'var(--dark)',borderBottom:'1px solid var(--border)'}}>
+        {[['Total',sc.all,'var(--white)'],['Urmăresc',sc.watching,'#7c8fff'],['Terminate',sc.completed,'#4ecdc4'],['Plan',sc.plan_to_watch,'#ff6b9d'],['Dropped',sc.dropped,'#ff4444']].slice(0,mob?3:5).map(([l,v,c],i)=>(
+          <div key={l} style={{padding:mob?'14px 0':'18px 0',textAlign:'center',borderRight:mob?(i<2?'1px solid var(--border)':'none'):(i<4?'1px solid var(--border)':'none')}}>
+            <div style={{fontFamily:'var(--fd)',fontWeight:900,fontSize:mob?26:34,lineHeight:1,color:c}}>{v}</div>
+            <div style={{fontFamily:'var(--fd)',fontWeight:600,fontSize:9,letterSpacing:2,textTransform:'uppercase',color:'var(--grey2)',marginTop:4}}>{l}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Content */}
+      {mob?(
+        <>
+        <div style={{display:'flex',background:'var(--dark)',borderBottom:'1px solid var(--border)'}}>
+          {[['add','＋ Adaugă'],['music','♪ Muzică'],['list',`📋 Lista (${library.length})`]].map(([k,l])=>(
+            <button key={k} onClick={()=>setTab(k)} style={{flex:1,fontFamily:'var(--fd)',fontWeight:800,fontSize:mob?11:13,letterSpacing:2,textTransform:'uppercase',padding:'14px 0',background:'none',border:'none',borderBottom:tab===k?'2px solid var(--gold)':'2px solid transparent',color:tab===k?'white':'rgba(255,255,255,0.33)',cursor:'pointer'}}>{l}</button>
+          ))}
+        </div>
+        {tab==='add'?<FormPanel/>:tab==='music'?<MusicPanel showToast={showToast}/>:<ListPanel/>}
+        </>
+      ):(
+        <div style={{display:'grid',gridTemplateColumns:showMusicPanel?'400px 400px 1fr':'400px 1fr',minHeight:'calc(100vh - 145px)',transition:'grid-template-columns .3s'}}>
+          <div style={{borderRight:'1px solid var(--border)',background:'var(--dark)'}}><FormPanel/></div>
+          {showMusicPanel&&<div style={{borderRight:'1px solid var(--border)',background:'var(--dark)',overflowY:'auto'}}><MusicPanel showToast={showToast}/></div>}
+          <div><ListPanel/></div>
+        </div>
+      )}
+
+      {editItem&&<EditModal anime={editItem} onSave={ch=>saveEdit(editItem.mal_id,ch)} onClose={()=>setEditItem(null)}/>}
+      {delId!==null&&<DelConfirm onConfirm={()=>removeAnime(delId)} onClose={()=>setDelId(null)}/>}
+      {showImport&&<MalImport library={library} onImport={handleImport} onClose={()=>setShowImport(false)} showToast={showToast}/>}
+      {showCPass&&<ChangePassModal onClose={()=>setShowCPass(false)} showToast={showToast}/>}
+      <Toast {...toast}/>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   ROOT — decides screen based on state
+═══════════════════════════════════════════════ */
+function AdminApp(){
+  const[screen,setScreen]=useState(()=>{
+    if(checkSession()) return 'panel';
+    if(!getStoredHash()) return 'setup';
+    return 'login';
+  });
+  if(screen==='setup')  return <SetupScreen onSetup={()=>setScreen('panel')}/>;
+  if(screen==='login')  return <LoginScreen onLogin={()=>setScreen('panel')}/>;
+  return <AdminPanel onLogout={()=>setScreen('login')}/>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
+</script>
+</body>
+</html>
