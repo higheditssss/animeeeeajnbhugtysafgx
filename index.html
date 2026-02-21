@@ -71,19 +71,22 @@ const MUSIC_KEY='highedits_music';
 const JSONBIN_BIN_ID  = '699a248cae596e708f3db07c';        // ex: 6630f1e2ad19ca34f8a1b2c3
 const JSONBIN_API_KEY = '$2a$10$TANY.m1o6UHbrTVlmWAIf.yD3CaeRuTELw94HR66Jtudrq.W/NJUG';        // ex: $2a$10$...
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
-const JSONBIN_CONFIGURED = JSONBIN_BIN_ID!=='PUNE_BIN_ID_AICI' && JSONBIN_API_KEY!=='PUNE_API_KEY_AICI';
+const JSONBIN_CONFIGURED = JSONBIN_BIN_ID!=='699a248cae596e708f3db07c' && JSONBIN_API_KEY!=='$2a$10$TANY.m1o6UHbrTVlmWAIf.yD3CaeRuTELw94HR66Jtudrq.W/NJUG';
 
 /* Fetch library + music from JSONBin (returns {library,music}) */
 async function fetchCloud(){
   if(!JSONBIN_CONFIGURED) return null;
   try{
     const r=await fetch(JSONBIN_URL+'/latest',{
-      headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+      headers:{
+        'X-Master-Key':JSONBIN_API_KEY,
+        'X-Bin-Meta':'false',
+      },
     });
-    if(!r.ok) return null;
+    if(!r.ok){console.warn('JSONBin read failed:',r.status);return null;}
     const d=await r.json();
     return{library:d.library||[],music:d.music||[]};
-  }catch{return null;}
+  }catch(e){console.warn('JSONBin fetch error:',e);return null;}
 }
 
 /* LocalStorage fallbacks */

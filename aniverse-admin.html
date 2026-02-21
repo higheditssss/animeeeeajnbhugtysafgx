@@ -64,7 +64,7 @@ const JIKAN         = 'https://api.jikan.moe/v4';
 const JSONBIN_BIN_ID  = '699a248cae596e708f3db07c';
 const JSONBIN_API_KEY = '$2a$10$TANY.m1o6UHbrTVlmWAIf.yD3CaeRuTELw94HR66Jtudrq.W/NJUG';
 const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
-const JSONBIN_CONFIGURED = JSONBIN_BIN_ID!=='PUNE_BIN_ID_AICI' && JSONBIN_API_KEY!=='PUNE_API_KEY_AICI';
+const JSONBIN_CONFIGURED = JSONBIN_BIN_ID!=='699a248cae596e708f3db07c' && JSONBIN_API_KEY!=='$2a$10$TANY.m1o6UHbrTVlmWAIf.yD3CaeRuTELw94HR66Jtudrq.W/NJUG';
 
 /* Push both library + music to cloud */
 let _cloudSaveTimer=null;
@@ -73,13 +73,18 @@ function scheduleCloudSave(library, music){
   clearTimeout(_cloudSaveTimer);
   _cloudSaveTimer=setTimeout(async()=>{
     try{
-      await fetch(JSONBIN_URL,{
+      const r=await fetch(JSONBIN_URL,{
         method:'PUT',
-        headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY,'X-Bin-Versioning':'false'},
+        headers:{
+          'Content-Type':'application/json',
+          'X-Master-Key':JSONBIN_API_KEY,
+          'X-Bin-Versioning':'false',
+        },
         body:JSON.stringify({library,music}),
       });
-    }catch(e){console.warn('JSONBin save failed',e);}
-  },800); // debounce 800ms
+      if(!r.ok) console.warn('JSONBin PUT failed:',r.status, await r.text());
+    }catch(e){console.warn('JSONBin save error:',e);}
+  },800);
 }
 
 /* SHA-256 via native Web Crypto API */
@@ -1081,28 +1086,37 @@ function AdminPanel({onLogout}){
   const[settingsOpen,setSettingsOpen]=useState(false);
   const[showMusicPanel,setShowMusicPanel]=useState(false);
   const[cloudSaving,setCloudSaving]=useState(false);
-  const[cloudOk,setCloudOk]=useState(false);
+  const[cloudOk,setCloudOk]=useState(null); // null=neîncercat, true=ok, false=eroare
   const[toast,showToast]=useToast();
   const srTimer=useRef(null);const wrapRef=useRef(null);
   const mob=useIsMobile();
 
+  const isFirstRender=useRef(true);
   useEffect(()=>{
-    saveLib(library);
-    if(JSONBIN_CONFIGURED){
-      setCloudSaving(true);setCloudOk(false);
-      const t=setTimeout(async()=>{
-        try{
-          const r=await fetch(JSONBIN_URL,{
-            method:'PUT',
-            headers:{'Content-Type':'application/json','X-Master-Key':JSONBIN_API_KEY,'X-Bin-Versioning':'false'},
-            body:JSON.stringify({library,music:getMusic()}),
-          });
-          setCloudOk(r.ok);
-        }catch{setCloudOk(false);}
-        setCloudSaving(false);
-      },800);
-      return()=>clearTimeout(t);
-    }
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(library));
+    if(isFirstRender.current){isFirstRender.current=false;return;}
+    if(!JSONBIN_CONFIGURED) return;
+    setCloudSaving(true);setCloudOk(null);
+    const t=setTimeout(async()=>{
+      try{
+        const r=await fetch(JSONBIN_URL,{
+          method:'PUT',
+          headers:{
+            'Content-Type':'application/json',
+            'X-Master-Key':JSONBIN_API_KEY,
+            'X-Bin-Versioning':'false',
+          },
+          body:JSON.stringify({library,music:getMusic()}),
+        });
+        setCloudOk(r.ok);
+        if(!r.ok) console.warn('JSONBin PUT failed:',r.status);
+      }catch(e){
+        setCloudOk(false);
+        console.warn('JSONBin error:',e);
+      }
+      setCloudSaving(false);
+    },800);
+    return()=>clearTimeout(t);
   },[library]);
 
   useEffect(()=>{
@@ -1246,15 +1260,15 @@ function AdminPanel({onLogout}){
           <div style={{
             fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:1.5,
             textTransform:'uppercase',marginRight:12,
-            color:cloudSaving?'rgba(255,209,102,0.7)':cloudOk?'rgba(78,205,196,0.7)':'rgba(255,68,68,0.6)',
+            color:cloudSaving?'rgba(255,209,102,0.7)':cloudOk===true?'rgba(78,205,196,0.7)':cloudOk===false?'rgba(255,68,68,0.6)':'rgba(255,255,255,0.2)',
             display:'flex',alignItems:'center',gap:5,
           }}>
             <span style={{
               width:6,height:6,borderRadius:'50%',flexShrink:0,
-              background:cloudSaving?'rgba(255,209,102,0.7)':cloudOk?'rgba(78,205,196,0.7)':'rgba(255,68,68,0.6)',
+              background:cloudSaving?'rgba(255,209,102,0.7)':cloudOk===true?'rgba(78,205,196,0.7)':cloudOk===false?'rgba(255,68,68,0.6)':'rgba(255,255,255,0.15)',
               animation:cloudSaving?'pulse 1s ease-in-out infinite':'none',
             }}/>
-            {cloudSaving?'Salvează...':cloudOk?'Cloud sync ✓':'Eroare sync'}
+            {cloudSaving?'Salvează...':cloudOk===true?'Sync ✓':cloudOk===false?'Eroare sync':'—'}
           </div>
         ):(
           <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:9,letterSpacing:1.5,textTransform:'uppercase',marginRight:12,color:'rgba(255,150,50,0.6)',display:'flex',alignItems:'center',gap:5}}>
