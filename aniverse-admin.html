@@ -744,6 +744,8 @@ function XmlImportModal({onImport,onClose,showToast}){
     return items;
   }
 
+  const[fetchProgress,setFetchProgress]=useState(0); // 0-100 while fetching images
+
   const handleFile=e=>{
     const file=e.target.files?.[0];
     if(!file) return;
@@ -751,11 +753,41 @@ function XmlImportModal({onImport,onClose,showToast}){
     setState('parsing');
     setErrMsg('');
     const reader=new FileReader();
-    reader.onload=ev=>{
+    reader.onload=async ev=>{
       try{
         const items=parseXml(ev.target.result);
-        setParsed(items);
-        setSel(new Set(items.map(a=>a.mal_id)));
+        // Fetch images from Jikan in batches of 3
+        setState('fetching');
+        setFetchProgress(0);
+        const enriched=[...items];
+        const BATCH=3;
+        for(let i=0;i<enriched.length;i+=BATCH){
+          const batch=enriched.slice(i,i+BATCH);
+          await Promise.all(batch.map(async(a,bi)=>{
+            // skip if already has image (custom format)
+            if(a.image) return;
+            try{
+              const r=await fetch(`${JIKAN}/anime/${a.mal_id}`);
+              const d=await r.json();
+              if(d?.data){
+                enriched[i+bi].image=d.data.images?.jpg?.large_image_url||d.data.images?.jpg?.image_url||'';
+                enriched[i+bi].image_sm=d.data.images?.jpg?.small_image_url||'';
+                enriched[i+bi].title_english=enriched[i+bi].title_english||d.data.title_english||null;
+                enriched[i+bi].score=enriched[i+bi].score||d.data.score||null;
+                enriched[i+bi].episodes=enriched[i+bi].episodes||d.data.episodes||null;
+                enriched[i+bi].year=enriched[i+bi].year||d.data.aired?.prop?.from?.year||null;
+                enriched[i+bi].genres=enriched[i+bi].genres?.length?enriched[i+bi].genres:(d.data.genres||[]).map(g=>g.name);
+                enriched[i+bi].synopsis=enriched[i+bi].synopsis||d.data.synopsis||'';
+                enriched[i+bi].type=enriched[i+bi].type||d.data.type||'';
+              }
+            }catch(e){}
+          }));
+          setFetchProgress(Math.round(Math.min(((i+BATCH)/enriched.length)*100,100)));
+          // small delay between batches to respect Jikan rate limit
+          if(i+BATCH<enriched.length) await new Promise(r=>setTimeout(r,400));
+        }
+        setParsed(enriched);
+        setSel(new Set(enriched.map(a=>a.mal_id)));
         setState('preview');
       }catch(err){
         setErrMsg(err.message);
@@ -764,7 +796,6 @@ function XmlImportModal({onImport,onClose,showToast}){
     };
     reader.onerror=()=>{setErrMsg('Eroare la citirea fișierului.');setState('error');};
     reader.readAsText(file);
-    // reset input so same file can be re-selected
     e.target.value='';
   };
 
@@ -854,6 +885,23 @@ function XmlImportModal({onImport,onClose,showToast}){
             </div>
           )}
 
+          {/* FETCHING IMAGES: progress */}
+          {state==='fetching'&&(
+            <div style={{textAlign:'center',padding:'40px 0',display:'flex',flexDirection:'column',alignItems:'center',gap:16}}>
+              <span style={{display:'inline-block',width:32,height:32,border:'2px solid rgba(255,255,255,0.07)',borderTopColor:'var(--green)',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>
+              <div>
+                <div style={{fontFamily:'var(--fd)',fontWeight:800,fontSize:13,letterSpacing:2,textTransform:'uppercase',color:'var(--green)',marginBottom:6}}>
+                  Se descarcă pozele... {fetchProgress}%
+                </div>
+                <div style={{fontSize:11,color:'var(--grey2)',marginBottom:14}}>Jikan API — câte 3 pe secundă</div>
+              </div>
+              <div style={{width:'100%',maxWidth:300,height:4,background:'rgba(255,255,255,0.07)',borderRadius:2,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${fetchProgress}%`,background:'var(--green)',borderRadius:2,transition:'width .4s ease'}}/>
+              </div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.2)'}}>Nu închide fereastra...</div>
+            </div>
+          )}
+
           {/* PREVIEW: list of parsed anime */}
           {state==='preview'&&(
             <div>
@@ -876,7 +924,7 @@ function XmlImportModal({onImport,onClose,showToast}){
                   const sc=STATUS_COLORS[a.status]||'#888';
                   return(
                     <div key={a.mal_id} onClick={()=>toggleOne(a.mal_id)} style={{
-                      display:'flex',alignItems:'center',gap:10,padding:'9px 12px',
+                      display:'flex',alignItems:'center',gap:10,padding:'8px 12px',
                       background:checked?'rgba(78,205,196,0.06)':'transparent',
                       border:`1px solid ${checked?'rgba(78,205,196,0.15)':'var(--border)'}`,
                       cursor:'pointer',transition:'all .15s',borderRadius:4,
@@ -892,6 +940,13 @@ function XmlImportModal({onImport,onClose,showToast}){
                         transition:'all .15s',
                       }}>
                         {checked&&<span style={{fontSize:9,color:'#000',fontWeight:900,lineHeight:1}}>✓</span>}
+                      </div>
+                      {/* Thumbnail */}
+                      <div style={{width:32,height:46,flexShrink:0,background:'#111',borderRadius:3,overflow:'hidden'}}>
+                        {a.image_sm||a.image
+                          ?<img src={a.image_sm||a.image} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          :<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:'rgba(255,255,255,0.15)'}}>?</div>
+                        }
                       </div>
                       {/* Info */}
                       <div style={{flex:1,minWidth:0}}>
