@@ -1,10 +1,10 @@
 {
   "rewrites": [
-    { "source": "/admin-x7k2m9", "destination": "/admin-x7k2m9.html" }
+    { "source": "/admin-m4vz8p", "destination": "/aniverse-admin.html" }
   ],
   "headers": [
     {
-      "source": "/admin-x7k2m9.html",
+      "source": "/aniverse-admin.html",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ]

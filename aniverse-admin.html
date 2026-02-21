@@ -11,14 +11,23 @@
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --black:#000;--dark:#0d0d0d;--mid:#161616;
-  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.14);
-  --white:#fff;--red:#e63022;--gold:#ffd166;--green:#4ecdc4;--blue:#4a9eff;
-  --grey:#555;--grey2:#888;--text:#c4c4bc;
+  --black:#000;--dark:#0a0a0a;--mid:#111;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --white:#fff;--red:#888;--gold:#aaa;--green:#5a9e9a;--blue:#4a7acc;
+  --grey:#444;--grey2:#666;--text:#999;
   --fd:'Barlow Condensed',sans-serif;--fs:'Playfair Display',serif;--fb:'Barlow',sans-serif;
+}
+/* Grey/black pattern overlay */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,0.018) 1px,transparent 1px);
+  background-size:40px 40px;
 }
 html{scroll-behavior:smooth;}
 body{font-family:var(--fb);background:var(--black);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+#root{position:relative;z-index:1;}
 img{display:block;max-width:100%;}
 *::-webkit-scrollbar{width:3px;height:3px;}
 *::-webkit-scrollbar-track{background:transparent;}

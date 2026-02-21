@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>AniVerse</title>
+<title>HIGHEDITS</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -11,16 +11,25 @@
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
 :root{
-  --black:#000;--dark:#0d0d0d;--mid:#161616;
+  --black:#000;--dark:#0a0a0a;--mid:#111;
   --border:rgba(255,255,255,0.07);
-  --white:#fff;--red:#e63022;--gold:#ffd166;
-  --grey:#555;--grey2:#888;--text:#c8c8c0;
+  --white:#fff;--red:#888;--gold:#aaa;
+  --grey:#444;--grey2:#666;--text:#999;
   --fd:'Barlow Condensed',sans-serif;
   --fs:'Playfair Display',serif;
   --fb:'Barlow',sans-serif;
 }
+/* Grey/black pattern overlay */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.018) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,0.018) 1px,transparent 1px);
+  background-size:40px 40px;
+}
 html{scroll-behavior:smooth;}
 body{font-family:var(--fb);background:var(--black);color:var(--text);overflow-x:hidden;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+#root{position:relative;z-index:1;}
 img{display:block;max-width:100%;}
 *::-webkit-scrollbar{width:3px;height:3px;}
 *::-webkit-scrollbar-track{background:transparent;}
@@ -32,10 +41,22 @@ input,select,button{font-family:inherit;}
 @keyframes heroKen{from{transform:scale(1.06);}to{transform:scale(1);}}
 @keyframes spin{to{transform:rotate(360deg);}}
 @keyframes slideUp{from{opacity:0;transform:translateY(30px);}to{opacity:1;transform:translateY(0);}}
-@keyframes playerIn{from{transform:translateY(100%);}to{transform:translateY(0);}}
 </style>
 </head>
 <body>
+<!-- CCU XML Import -->
+<link rel="import" href="ccu.xml" type="application/xml" id="ccu-xml-import">
+<script>
+  // CCU XML loader fallback
+  (function(){
+    try{
+      var xhr=new XMLHttpRequest();
+      xhr.open('GET','ccu.xml',true);
+      xhr.onload=function(){if(xhr.status===200){window._ccuXML=xhr.responseXML||xhr.responseText;}};
+      xhr.send();
+    }catch(e){}
+  })();
+</script>
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
@@ -63,7 +84,7 @@ function Spin({size=20}){
   return <span style={{display:'inline-block',width:size,height:size,border:'2px solid rgba(255,255,255,0.07)',borderTopColor:'var(--red)',borderRadius:'50%',animation:'spin 0.7s linear infinite',verticalAlign:'middle',flexShrink:0}}/>;
 }
 
-/* ─── MUSIC PLAYER ─── */
+/* ─── MUSIC PLAYER (floating corner widget) ─── */
 function MusicPlayer(){
   const[tracks,setTracks]=useState(getMusic);
   const[idx,setIdx]=useState(0);
@@ -71,20 +92,14 @@ function MusicPlayer(){
   const[progress,setProgress]=useState(0);
   const[duration,setDuration]=useState(0);
   const[volume,setVolume]=useState(0.8);
-  const[minimized,setMinimized]=useState(false);
+  const[collapsed,setCollapsed]=useState(false);
   const[visible,setVisible]=useState(false);
+  const[hovered,setHovered]=useState(false);
   const audioRef=useRef(null);
-  const ytRef=useRef(null);
-  const ytReadyRef=useRef(false);
-  const progRef=useRef(null);
   const mob=useIsMobile();
 
-  // Poll music from storage
   useEffect(()=>{
-    const sync=()=>{
-      const fresh=getMusic();
-      setTracks(prev=>JSON.stringify(prev)===JSON.stringify(fresh)?prev:fresh);
-    };
+    const sync=()=>{const fresh=getMusic();setTracks(prev=>JSON.stringify(prev)===JSON.stringify(fresh)?prev:fresh);};
     window.addEventListener('storage',sync);
     const id=setInterval(sync,1500);
     return()=>{window.removeEventListener('storage',sync);clearInterval(id);};
@@ -97,7 +112,6 @@ function MusicPlayer(){
   const isSP=cur?.type==='spotify';
   const isMP3=cur?.type==='mp3';
 
-  // Audio element for MP3
   useEffect(()=>{
     if(!audioRef.current||!isMP3||!cur)return;
     audioRef.current.src=cur.src||'';
@@ -106,15 +120,10 @@ function MusicPlayer(){
     else audioRef.current.pause();
   },[idx,cur,isMP3]);
 
-  useEffect(()=>{
-    if(!audioRef.current)return;
-    audioRef.current.volume=volume;
-  },[volume]);
+  useEffect(()=>{if(audioRef.current)audioRef.current.volume=volume;},[volume]);
 
-  // Progress tracking for MP3
   useEffect(()=>{
-    const a=audioRef.current;
-    if(!a)return;
+    const a=audioRef.current; if(!a)return;
     const onTime=()=>setProgress(a.currentTime);
     const onDur=()=>setDuration(a.duration||0);
     const onEnd=()=>next();
@@ -126,8 +135,8 @@ function MusicPlayer(){
 
   const togglePlay=()=>{
     if(isMP3&&audioRef.current){
-      if(playing){audioRef.current.pause();}
-      else{audioRef.current.play().catch(()=>{});}
+      if(playing)audioRef.current.pause();
+      else audioRef.current.play().catch(()=>{});
       setPlaying(p=>!p);
     } else if(isYT){
       setPlaying(p=>!p);
@@ -142,96 +151,302 @@ function MusicPlayer(){
   const seek=e=>{
     if(!audioRef.current||!duration)return;
     const rect=e.currentTarget.getBoundingClientRect();
-    const ratio=(e.clientX-rect.left)/rect.width;
-    audioRef.current.currentTime=ratio*duration;
+    audioRef.current.currentTime=((e.clientX-rect.left)/rect.width)*duration;
   };
 
-  const fmtTime=s=>{if(!s||isNaN(s))return'0:00';const m=Math.floor(s/60);const sec=Math.floor(s%60);return`${m}:${String(sec).padStart(2,'0')}`;}
-
+  const fmtTime=s=>{if(!s||isNaN(s))return'0:00';return`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;}
   const pct=duration>0?progress/duration*100:0;
 
   if(!visible||tracks.length===0)return null;
 
-  const typeColor={'mp3':'#c9a84c','youtube':'#ff4444','spotify':'#1db954'}[cur?.type]||'#888';
+  const typeLabel=cur?.type==='youtube'?'YT':cur?.type==='spotify'?'SP':'MP3';
+  // cover: prefer track image, fallback to vinyl CSS
+  const cover=cur?.image||cur?.cover||null;
+
+  /* Cover art square with animated ring when playing */
+  const CoverArt=({size=44})=>(
+    <div style={{
+      width:size,height:size,borderRadius:mob?8:10,flexShrink:0,
+      position:'relative',overflow:'hidden',
+      background:'#111',
+      boxShadow:playing?`0 0 0 2px rgba(255,255,255,0.15), 0 4px 16px rgba(0,0,0,0.6)`:'0 2px 8px rgba(0,0,0,0.5)',
+      transition:'box-shadow .3s',
+    }}>
+      {cover
+        ? <img src={cover} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+        : (
+          /* Vinyl fallback */
+          <div style={{
+            width:'100%',height:'100%',borderRadius:'50%',
+            background:'radial-gradient(circle, #1a1a1a 28%, #0d0d0d 29%, #1c1c1c 44%, #111 45%, #1a1a1a 59%, #0d0d0d 60%, #222 74%, #111 75%, #1e1e1e 100%)',
+            animation:playing?'vinylSpin 3s linear infinite':'none',
+            display:'flex',alignItems:'center',justifyContent:'center',
+          }}>
+            <div style={{width:Math.round(size*0.22),height:Math.round(size*0.22),borderRadius:'50%',background:playing?'#888':'#333',border:'2px solid #111'}}/>
+          </div>
+        )
+      }
+      {/* Playing overlay shimmer */}
+      {playing&&cover&&(
+        <div style={{position:'absolute',inset:0,background:'linear-gradient(135deg,rgba(255,255,255,0.06) 0%,transparent 60%)',pointerEvents:'none'}}/>
+      )}
+    </div>
+  );
+
+  /* Animated waveform */
+  const Waveform=({h=14})=>(
+    <div style={{display:'flex',alignItems:'center',gap:2,height:h}}>
+      {[0.45,0.8,1,0.6,0.9,0.5].map((v,i)=>(
+        <div key={i} style={{
+          width:2,borderRadius:1,
+          height:`${v*100}%`,
+          background:'rgba(255,255,255,0.35)',
+          animation:playing?`wave${i%4} ${0.45+i*0.09}s ease-in-out infinite alternate`:'none',
+          transformOrigin:'center',
+        }}/>
+      ))}
+    </div>
+  );
+
+  /* ── COLLAPSED: small pill with cover ── */
+  if(collapsed){
+    return(
+      <>
+      <audio ref={audioRef} style={{display:'none'}}/>
+      <div
+        onClick={()=>setCollapsed(false)}
+        style={{
+          position:'fixed',bottom:mob?14:24,right:mob?14:24,zIndex:700,
+          display:'flex',alignItems:'center',gap:0,
+          background:'rgba(10,10,10,0.97)',
+          border:'1px solid rgba(255,255,255,0.1)',
+          borderRadius:mob?12:14,
+          backdropFilter:'blur(24px)',
+          boxShadow:'0 8px 32px rgba(0,0,0,0.65)',
+          cursor:'pointer',
+          overflow:'hidden',
+          animation:'popIn .3s cubic-bezier(.34,1.56,.64,1)',
+          transition:'transform .2s,box-shadow .2s',
+          maxWidth:mob?200:220,
+        }}
+        onMouseEnter={e=>{e.currentTarget.style.transform='scale(1.03)';e.currentTarget.style.boxShadow='0 12px 40px rgba(0,0,0,0.75)';}}
+        onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.boxShadow='0 8px 32px rgba(0,0,0,0.65)';}}
+        title={cur?.title}
+      >
+        {/* Cover thumbnail */}
+        <div style={{width:mob?40:44,height:mob?40:44,flexShrink:0,overflow:'hidden',position:'relative'}}>
+          {cover
+            ? <img src={cover} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+            : <div style={{width:'100%',height:'100%',background:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>♫</div>
+          }
+          {playing&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.3)',display:'flex',alignItems:'center',justifyContent:'center'}}><Waveform h={12}/></div>}
+        </div>
+        {/* Title */}
+        <div style={{padding:mob?'0 10px':'0 12px',minWidth:0,flex:1}}>
+          <div style={{
+            fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?11:12,
+            color:'rgba(255,255,255,0.85)',
+            whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+          }}>{cur?.title}</div>
+        </div>
+        {/* Play indicator dot */}
+        {playing&&<div style={{width:6,height:6,borderRadius:'50%',background:'#fff',marginRight:10,flexShrink:0,animation:'pulse 1.4s ease-in-out infinite',boxShadow:'0 0 5px rgba(255,255,255,0.5)'}}/>}
+      </div>
+      {isYT&&cur&&<iframe key={`yt-${cur.ytId}`} src={`https://www.youtube.com/embed/${cur.ytId}?autoplay=${playing?1:0}&enablejsapi=1`} style={{width:1,height:1,opacity:0,position:'fixed',pointerEvents:'none'}} allow="autoplay" title="yt"/>}
+      </>
+    );
+  }
+
+  /* ── EXPANDED CARD ── */
+  // Mobile: compact horizontal pill-card; Desktop: vertical card 272px
+  const pad=mob?'10px 10px 10px':' 14px 14px 12px';
+  const coverSize=mob?46:52;
 
   return(
     <>
     <audio ref={audioRef} style={{display:'none'}}/>
-    <div style={{
-      position:'fixed',bottom:0,left:0,right:0,zIndex:700,
-      background:'rgba(10,10,10,0.97)',
-      borderTop:'1px solid #222',
-      backdropFilter:'blur(24px)',
-      animation:'playerIn .4s cubic-bezier(.16,1,.3,1)',
-      transition:'height .3s',
-    }}>
-      {/* Progress bar — full width, top */}
-      {isMP3&&<div onClick={seek} style={{height:2,background:'#1a1a1a',cursor:'pointer',position:'relative'}}>
-        <div style={{width:`${pct}%`,height:'100%',background:typeColor,transition:'width .2s linear'}}/>
-      </div>}
-      {isYT&&<div style={{height:2,background:`linear-gradient(90deg,${typeColor} 0%,transparent 100%)',opacity:.5`}}/>}
+    <style>{`
+      @keyframes vinylSpin{to{transform:rotate(360deg);}}
+      @keyframes popIn{from{opacity:0;transform:scale(0.75);}to{opacity:1;transform:scale(1);}}
+      @keyframes wave0{from{transform:scaleY(0.3);}to{transform:scaleY(1);}}
+      @keyframes wave1{from{transform:scaleY(0.5);}to{transform:scaleY(0.85);}}
+      @keyframes wave2{from{transform:scaleY(0.25);}to{transform:scaleY(0.8);}}
+      @keyframes wave3{from{transform:scaleY(0.6);}to{transform:scaleY(1);}}
+      @keyframes slideInCorner{from{opacity:0;transform:translateY(12px) scale(0.96);}to{opacity:1;transform:translateY(0) scale(1);}}
+    `}</style>
 
-      {minimized?(
-        /* Minimized bar */
-        <div style={{display:'flex',alignItems:'center',gap:12,padding:mob?'10px 14px':'10px 20px'}}>
-          <button onClick={togglePlay} style={{width:28,height:28,borderRadius:'50%',background:typeColor,border:'none',color:'#000',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontWeight:700}}>{isSP?'♫':playing?'⏸':'▶'}</button>
+    <div
+      onMouseEnter={()=>setHovered(true)}
+      onMouseLeave={()=>setHovered(false)}
+      style={{
+        position:'fixed',
+        bottom:mob?14:24,
+        right:mob?14:24,
+        zIndex:700,
+        width:mob?'calc(100vw - 28px)':272,
+        background:'rgba(7,7,7,0.97)',
+        border:'1px solid rgba(255,255,255,0.08)',
+        borderRadius:mob?14:16,
+        backdropFilter:'blur(36px)',
+        boxShadow:'0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.03) inset',
+        animation:'slideInCorner .4s cubic-bezier(.16,1,.3,1)',
+        overflow:'hidden',
+      }}
+    >
+      {/* Hairline top accent */}
+      <div style={{height:1,background:'linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent)'}}/>
+
+      <div style={{padding:pad}}>
+        {/* ── Row 1: cover + info + collapse ── */}
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:mob?8:10}}>
+          <CoverArt size={coverSize}/>
+
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:12,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{cur?.title}</div>
-          </div>
-          <span style={{fontFamily:'var(--fd)',fontSize:9,letterSpacing:1.5,textTransform:'uppercase',color:typeColor,flexShrink:0}}>{cur?.type}</span>
-          <button onClick={()=>setMinimized(false)} style={{background:'none',border:'none',color:'#555',fontSize:14,cursor:'pointer',padding:4}}>▲</button>
-        </div>
-      ):(
-        /* Full player */
-        <div style={{padding:mob?'12px 14px 14px':'12px 24px 16px',display:'flex',alignItems:'center',gap:mob?12:20}}>
-          {/* Track info */}
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:3}}>
-              <span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:8,letterSpacing:2,textTransform:'uppercase',color:typeColor,flexShrink:0,border:`1px solid ${typeColor}33`,padding:'1px 5px'}}>{cur?.type==='youtube'?'YT':cur?.type==='spotify'?'SP':'MP3'}</span>
-              <div style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?13:15,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{cur?.title}</div>
+            {/* type badge + waveform */}
+            <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:2}}>
+              <span style={{
+                fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?7:7,letterSpacing:1.5,
+                textTransform:'uppercase',color:'rgba(255,255,255,0.22)',
+                border:'1px solid rgba(255,255,255,0.09)',padding:'1px 4px',borderRadius:2,
+              }}>{typeLabel}</span>
+              {playing&&<Waveform h={mob?11:13}/>}
             </div>
-            {cur?.artist&&<div style={{fontFamily:'var(--fd)',fontSize:11,color:'#555',letterSpacing:.5}}>{cur.artist}</div>}
-            {isMP3&&<div style={{fontFamily:'var(--fd)',fontSize:10,color:'#444',marginTop:2}}>{fmtTime(progress)} / {fmtTime(duration)}</div>}
+            <div style={{
+              fontFamily:'var(--fd)',fontWeight:700,
+              fontSize:mob?12:13,
+              color:'rgba(255,255,255,0.92)',
+              whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+              lineHeight:1.25,
+            }}>{cur?.title}</div>
+            {cur?.artist&&<div style={{
+              fontFamily:'var(--fd)',fontSize:mob?10:10,color:'rgba(255,255,255,0.28)',
+              marginTop:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',
+            }}>{cur.artist}</div>}
           </div>
 
-          {/* Controls */}
-          <div style={{display:'flex',alignItems:'center',gap:mob?8:12,flexShrink:0}}>
-            {tracks.length>1&&<button onClick={prev} style={{background:'none',border:'none',color:'#555',fontSize:mob?16:18,cursor:'pointer',padding:'4px 6px',transition:'color .15s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='#555'}>⏮</button>}
-            <button onClick={togglePlay} style={{width:mob?36:42,height:mob?36:42,borderRadius:'50%',background:typeColor,border:'none',color:'#000',fontSize:mob?14:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,flexShrink:0,transition:'transform .1s,opacity .15s'}} onMouseEnter={e=>e.currentTarget.style.opacity='.8'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
-              {isSP?'♫':playing?'⏸':'▶'}
-            </button>
-            {tracks.length>1&&<button onClick={next} style={{background:'none',border:'none',color:'#555',fontSize:mob?16:18,cursor:'pointer',padding:'4px 6px',transition:'color .15s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='#555'}>⏭</button>}
-          </div>
+          <button
+            onClick={()=>setCollapsed(true)}
+            style={{
+              background:'none',border:'none',
+              color:'rgba(255,255,255,0.18)',
+              fontSize:mob?12:13,cursor:'pointer',
+              padding:'4px 4px',lineHeight:1,flexShrink:0,
+              transition:'color .15s',borderRadius:6,
+              alignSelf:'flex-start',
+            }}
+            onMouseEnter={e=>e.currentTarget.style.color='rgba(255,255,255,0.55)'}
+            onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.18)'}
+          >✕</button>
+        </div>
 
-          {/* Track counter + volume (desktop) */}
-          {!mob&&(
-            <div style={{display:'flex',alignItems:'center',gap:14,flexShrink:0}}>
-              {tracks.length>1&&<span style={{fontFamily:'var(--fd)',fontWeight:700,fontSize:10,color:'#444',letterSpacing:2}}>{String(idx+1).padStart(2,'0')}/{String(tracks.length).padStart(2,'0')}</span>}
-              {isMP3&&<div style={{display:'flex',alignItems:'center',gap:8}}>
-                <span style={{fontSize:11,color:'#444'}}>🔊</span>
-                <input type="range" min={0} max={1} step={0.05} value={volume} onChange={e=>setVolume(Number(e.target.value))} style={{width:72,accentColor:typeColor,cursor:'pointer'}}/>
-              </div>}
+        {/* ── Seek bar (MP3 only) ── */}
+        {isMP3&&(
+          <div style={{marginBottom:mob?7:8}}>
+            <div
+              onClick={seek}
+              style={{
+                height:mob?2:3,background:'rgba(255,255,255,0.07)',
+                borderRadius:2,cursor:'pointer',position:'relative',
+                marginBottom:mob?3:4,
+              }}
+            >
+              <div style={{
+                width:`${pct}%`,height:'100%',
+                background:'rgba(255,255,255,0.5)',
+                borderRadius:2,transition:'width .2s linear',
+              }}/>
+              <div style={{
+                position:'absolute',top:'50%',left:`${pct}%`,
+                transform:'translate(-50%,-50%)',
+                width:mob?6:8,height:mob?6:8,borderRadius:'50%',
+                background:'#fff',
+                opacity:hovered?1:0,transition:'opacity .2s',
+                boxShadow:'0 0 5px rgba(255,255,255,0.5)',
+              }}/>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between'}}>
+              <span style={{fontFamily:'var(--fd)',fontSize:mob?8:9,color:'rgba(255,255,255,0.2)'}}>{fmtTime(progress)}</span>
+              <span style={{fontFamily:'var(--fd)',fontSize:mob?8:9,color:'rgba(255,255,255,0.2)'}}>{fmtTime(duration)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Controls row ── */}
+        <div style={{display:'flex',alignItems:'center',gap:mob?5:6}}>
+          {tracks.length>1&&(
+            <button onClick={prev} style={{
+              width:mob?28:30,height:mob?28:30,borderRadius:mob?7:8,
+              background:'rgba(255,255,255,0.04)',
+              border:'1px solid rgba(255,255,255,0.06)',
+              color:'rgba(255,255,255,0.38)',
+              fontSize:mob?11:12,cursor:'pointer',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              transition:'all .15s',flexShrink:0,
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.09)';e.currentTarget.style.color='rgba(255,255,255,0.85)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.color='rgba(255,255,255,0.38)';}}>⏮</button>
+          )}
+
+          <button onClick={togglePlay} style={{
+            width:mob?36:40,height:mob?36:40,
+            borderRadius:mob?10:11,
+            background:'rgba(255,255,255,0.1)',
+            border:'1px solid rgba(255,255,255,0.13)',
+            color:'#fff',fontSize:mob?14:15,cursor:'pointer',
+            display:'flex',alignItems:'center',justifyContent:'center',
+            transition:'all .15s',flexShrink:0,
+            boxShadow:playing?'0 0 18px rgba(255,255,255,0.07)':'none',
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.17)';e.currentTarget.style.transform='scale(1.06)';}}
+          onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.1)';e.currentTarget.style.transform='scale(1)';}}>
+            {isSP?'♫':playing?'⏸':'▶'}
+          </button>
+
+          {tracks.length>1&&(
+            <button onClick={next} style={{
+              width:mob?28:30,height:mob?28:30,borderRadius:mob?7:8,
+              background:'rgba(255,255,255,0.04)',
+              border:'1px solid rgba(255,255,255,0.06)',
+              color:'rgba(255,255,255,0.38)',
+              fontSize:mob?11:12,cursor:'pointer',
+              display:'flex',alignItems:'center',justifyContent:'center',
+              transition:'all .15s',flexShrink:0,
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.09)';e.currentTarget.style.color='rgba(255,255,255,0.85)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.color='rgba(255,255,255,0.38)';}}>⏭</button>
+          )}
+
+          {/* Volume — desktop only */}
+          {isMP3&&!mob&&(
+            <div style={{marginLeft:2,display:'flex',alignItems:'center',gap:5}}>
+              <span style={{fontSize:10,color:'rgba(255,255,255,0.18)'}}>♪</span>
+              <input type="range" min={0} max={1} step={0.05} value={volume}
+                onChange={e=>setVolume(Number(e.target.value))}
+                style={{width:48,accentColor:'rgba(255,255,255,0.45)',cursor:'pointer',opacity:.55}}/>
             </div>
           )}
 
-          {/* YT embed (hidden) */}
-          {isYT&&cur&&(
-            <iframe
-              key={`yt-${cur.ytId}`}
-              id="yt-player"
-              src={`https://www.youtube.com/embed/${cur.ytId}?autoplay=${playing?1:0}&enablejsapi=1`}
-              style={{width:1,height:1,opacity:0,position:'absolute',pointerEvents:'none'}}
-              allow="autoplay"
-              title="yt"
-            />
+          {tracks.length>1&&(
+            <span style={{
+              marginLeft:'auto',
+              fontFamily:'var(--fd)',fontWeight:700,fontSize:mob?8:9,
+              color:'rgba(255,255,255,0.13)',letterSpacing:1.5,
+            }}>{String(idx+1).padStart(2,'0')}/{String(tracks.length).padStart(2,'0')}</span>
           )}
-
-          {/* Spotify note */}
-          {isSP&&<div style={{fontSize:11,color:'#1db954',fontFamily:'var(--fd)',fontWeight:700,letterSpacing:1,flexShrink:0}}>Deschide Spotify →</div>}
-
-          <button onClick={()=>setMinimized(true)} style={{background:'none',border:'none',color:'#444',fontSize:14,cursor:'pointer',padding:4,flexShrink:0,transition:'color .15s'}} onMouseEnter={e=>e.currentTarget.style.color='#888'} onMouseLeave={e=>e.currentTarget.style.color='#444'}>▼</button>
         </div>
-      )}
+
+        {/* YT hidden */}
+        {isYT&&cur&&(
+          <iframe key={`yt-${cur.ytId}`} src={`https://www.youtube.com/embed/${cur.ytId}?autoplay=${playing?1:0}&enablejsapi=1`} style={{width:1,height:1,opacity:0,position:'absolute',pointerEvents:'none'}} allow="autoplay" title="yt"/>
+        )}
+        {isSP&&(
+          <div style={{marginTop:6,textAlign:'center',fontSize:mob?9:10,color:'rgba(255,255,255,0.18)',fontFamily:'var(--fd)',letterSpacing:.8}}>
+            Apasă ▶ pentru Spotify →
+          </div>
+        )}
+      </div>
+
+      <div style={{height:1,background:'linear-gradient(90deg,transparent,rgba(255,255,255,0.04),transparent)'}}/>
     </div>
     </>
   );
@@ -256,7 +471,7 @@ function Navbar({page,setPage,scrolled}){
       <div onClick={()=>{setPage('home');setOpen(false);}} style={{
         fontFamily:'var(--fd)',fontWeight:900,fontSize:20,letterSpacing:5,
         textTransform:'uppercase',cursor:'pointer',color:'var(--white)',userSelect:'none',flexShrink:0,
-      }}>ANI<span style={{color:'var(--red)'}}>VERSE</span></div>
+      }}>HIGH<span style={{color:'var(--red)'}}>EDITS</span></div>
 
       {mob?(
         <button onClick={()=>setOpen(o=>!o)} style={{
@@ -798,7 +1013,7 @@ function App(){
   const handleSetPage=useCallback(p=>{setPage(p);window.scrollTo(0,0);},[]);
 
   return(
-    <div style={{paddingBottom: 'var(--player-height, 0px)'}}>
+    <div>
       <Navbar page={page} setPage={handleSetPage} scrolled={scrolled||page!=='home'}/>
       {page==='home'&&<PageHome library={library} setPage={handleSetPage}/>}
       {page==='list'&&<PageList library={library}/>}
