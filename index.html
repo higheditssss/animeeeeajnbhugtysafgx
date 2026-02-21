@@ -62,14 +62,40 @@ input,select,button{font-family:inherit;}
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
 const STORAGE_KEY='aniverse_v3_library';
 const MUSIC_KEY='highedits_music';
+
+/* ─── JSONBIN CONFIG ─────────────────────────────────────────
+   1. Mergi pe https://jsonbin.io și creează cont gratuit
+   2. Creează un Bin nou cu conținut: {"library":[],"music":[]}
+   3. Copiază BIN_ID și X-Master-Key de mai jos
+──────────────────────────────────────────────────────────── */
+const JSONBIN_BIN_ID  = 'PUNE_BIN_ID_AICI';        // ex: 6630f1e2ad19ca34f8a1b2c3
+const JSONBIN_API_KEY = 'PUNE_API_KEY_AICI';        // ex: $2a$10$...
+const JSONBIN_URL     = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+const JSONBIN_CONFIGURED = JSONBIN_BIN_ID!=='PUNE_BIN_ID_AICI' && JSONBIN_API_KEY!=='PUNE_API_KEY_AICI';
+
+/* Fetch library + music from JSONBin (returns {library,music}) */
+async function fetchCloud(){
+  if(!JSONBIN_CONFIGURED) return null;
+  try{
+    const r=await fetch(JSONBIN_URL+'/latest',{
+      headers:{'X-Master-Key':JSONBIN_API_KEY,'X-Bin-Meta':'false'},
+    });
+    if(!r.ok) return null;
+    const d=await r.json();
+    return{library:d.library||[],music:d.music||[]};
+  }catch{return null;}
+}
+
+/* LocalStorage fallbacks */
+function getLib(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch{return[];}}
+function getMusic(){try{return JSON.parse(localStorage.getItem(MUSIC_KEY)||'[]');}catch{return[];}}
+
 const STATUS_META={
   watching:    {label:'Urmăresc',   color:'#7c8fff',bg:'rgba(124,143,255,0.13)'},
   completed:   {label:'Terminat',   color:'#4ecdc4',bg:'rgba(78,205,196,0.13)'},
   plan_to_watch:{label:'Plan',      color:'#ff6b9d',bg:'rgba(255,107,157,0.13)'},
   dropped:     {label:'Dropped',    color:'#ff4444',bg:'rgba(255,68,68,0.13)'},
 };
-function getLib(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');}catch{return[];}}
-function getMusic(){try{return JSON.parse(localStorage.getItem(MUSIC_KEY)||'[]');}catch{return[];}}
 function useIsMobile(){
   const[m,setM]=useState(()=>window.innerWidth<768);
   useEffect(()=>{
@@ -990,17 +1016,36 @@ function App(){
   const[page,setPage]=useState('home');
   const[library,setLibrary]=useState(getLib);
   const[scrolled,setScrolled]=useState(false);
+  const[cloudErr,setCloudErr]=useState(false);
 
+  /* Load from cloud on mount, then poll every 30s */
   useEffect(()=>{
-    // Sync when admin panel changes localStorage (cross-tab)
+    let cancelled=false;
+    async function sync(){
+      const data=await fetchCloud();
+      if(cancelled) return;
+      if(data){
+        // save to localStorage as cache
+        localStorage.setItem(STORAGE_KEY,JSON.stringify(data.library));
+        localStorage.setItem(MUSIC_KEY,JSON.stringify(data.music));
+        setLibrary(data.library);
+        setCloudErr(false);
+      } else {
+        // JSONBin not configured or error — fall back to localStorage
+        setLibrary(getLib());
+        if(JSONBIN_CONFIGURED) setCloudErr(true);
+      }
+    }
+    sync();
+    const id=setInterval(sync,30000);
+    return()=>{cancelled=true;clearInterval(id);};
+  },[]);
+
+  /* Also sync from localStorage for same-tab admin changes */
+  useEffect(()=>{
     const sync=()=>setLibrary(getLib());
     window.addEventListener('storage',sync);
-    // Poll for same-origin changes every 1.5s
-    const id=setInterval(()=>{
-      const fresh=getLib();
-      setLibrary(prev=>JSON.stringify(prev)===JSON.stringify(fresh)?prev:fresh);
-    },1500);
-    return()=>{window.removeEventListener('storage',sync);clearInterval(id);};
+    return()=>window.removeEventListener('storage',sync);
   },[]);
 
   useEffect(()=>{
@@ -1009,11 +1054,17 @@ function App(){
     return()=>window.removeEventListener('scroll',h);
   },[]);
 
-  // Fix discover filter onChange
   const handleSetPage=useCallback(p=>{setPage(p);window.scrollTo(0,0);},[]);
 
   return(
     <div>
+      {cloudErr&&(
+        <div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',zIndex:500,
+          background:'rgba(255,68,68,0.12)',border:'1px solid rgba(255,68,68,0.3)',
+          color:'rgba(255,100,100,0.8)',fontFamily:'var(--fd)',fontSize:10,letterSpacing:2,
+          textTransform:'uppercase',padding:'8px 16px',borderRadius:4,pointerEvents:'none',
+        }}>⚠ JSONBin neconfigurat — date locale</div>
+      )}
       <Navbar page={page} setPage={handleSetPage} scrolled={scrolled||page!=='home'}/>
       {page==='home'&&<PageHome library={library} setPage={handleSetPage}/>}
       {page==='list'&&<PageList library={library}/>}
